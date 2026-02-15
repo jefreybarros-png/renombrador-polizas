@@ -11,7 +11,7 @@ import math
 import numpy as np
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Jerárquica V134", layout="wide")
+st.set_page_config(page_title="Logística Flexible V135", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,7 +23,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Extracción Jerárquica (Corrección Póliza)")
+st.title("🎯 Logística ITA: Búsqueda Flexible de Pólizas")
 
 # --- FUNCIONES ---
 def limpiar_estricto(txt):
@@ -283,7 +283,7 @@ with tab_visor:
         st.divider()
         if pdf_in:
             if st.button("✅ GENERAR PAQUETE ESTRUCTURADO", type="primary"):
-                with st.spinner("Indexando PDFs (Jerarquía Estricta)..."):
+                with st.spinner("Procesando PDFs..."):
                     df['CARPETA'] = df['TECNICO_FINAL']
                     
                     pdf_in.seek(0)
@@ -293,35 +293,25 @@ with tab_visor:
                     for i in range(len(doc)):
                         txt = doc[i].get_text()
                         
-                        # --- BÚSQUEDA JERÁRQUICA DE LA PÓLIZA ---
-                        # 1. Buscar "Póliza No:" (La verdad absoluta)
-                        match_poliza = re.search(r'(?:Póliza|Poliza)\s*(?:No\.?|:|#)?\s*(\d{4,15})', txt, re.IGNORECASE)
+                        # --- EXTRACCIÓN FLEXIBLE ---
+                        # Busca "Póliza" o "Cuenta", ignora hasta 20 caracteres basura, y toma el número
+                        regex_flex = r'(?:Póliza|Poliza|Cuenta)\D{0,20}(\d{4,15})'
+                        matches = re.findall(regex_flex, txt, re.IGNORECASE)
                         
-                        # 2. Buscar "Cuenta:" (Opción B)
-                        match_cuenta = re.search(r'(?:Cuenta)\s*(?:No\.?|:|#)?\s*(\d{4,15})', txt, re.IGNORECASE)
+                        sub = fitz.open()
+                        sub.insert_pdf(doc, from_page=i, to_page=i)
+                        if i + 1 < len(doc):
+                            txt_next = doc[i+1].get_text()
+                            if not re.search(r'(?:Póliza|Poliza|Cuenta)', txt_next, re.IGNORECASE):
+                                sub.insert_pdf(doc, from_page=i+1, to_page=i+1)
+                        pdf_bytes = sub.tobytes()
+                        sub.close()
                         
-                        # Decidir cuál número usar
-                        numero_final = None
-                        if match_poliza:
-                            numero_final = normalizar_numero(match_poliza.group(1))
-                        elif match_cuenta:
-                            numero_final = normalizar_numero(match_cuenta.group(1))
-                        
-                        # Solo si encontramos un número válido, guardamos
-                        if numero_final:
-                            sub = fitz.open()
-                            sub.insert_pdf(doc, from_page=i, to_page=i)
-                            if i + 1 < len(doc):
-                                txt_next = doc[i+1].get_text()
-                                # Si la siguiente hoja NO tiene título de póliza, es anexo
-                                if not re.search(r'(?:Póliza|Poliza|Cuenta)\s*(?:No\.?|:)', txt_next, re.IGNORECASE):
-                                    sub.insert_pdf(doc, from_page=i+1, to_page=i+1)
-                            
-                            pdf_bytes = sub.tobytes()
-                            sub.close()
-                            mapa_p[numero_final] = pdf_bytes
+                        for m in matches:
+                            norm = normalizar_numero(m)
+                            if norm: mapa_p[norm] = pdf_bytes
 
-                    # 2. GENERAR ZIP
+                    # ZIP
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w") as zf:
                         # AFUERA
@@ -339,40 +329,43 @@ with tab_visor:
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
-                            # ORDENAR
                             c_dir = col_map.get('DIRECCION')
                             if c_dir:
                                 df_t['P'] = df_t[c_dir].astype(str).apply(calcular_peso_js)
                                 df_t = df_t.sort_values('P')
                             
-                            # 1. LISTADO
                             pdf_h = crear_pdf_lista(df_t, tec, col_map)
                             zf.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", pdf_h)
                             
-                            # 2. EXCEL
                             out_t = io.BytesIO()
                             with pd.ExcelWriter(out_t, engine='xlsxwriter') as w: df_t.to_excel(w, index=False)
                             zf.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", out_t.getvalue())
                             
-                            # 3. POLIZAS
                             merger = fitz.open()
                             count_merged = 0
                             
                             for _, r in df_t.iterrows():
-                                # Intentar cruzar por Cuenta
-                                t_cuenta = normalizar_numero(str(r[col_map['CUENTA']]))
+                                targets = []
+                                if col_map.get('CUENTA'): targets.append(str(r[col_map['CUENTA']]))
+                                if col_map.get('MEDIDOR'): targets.append(str(r[col_map['MEDIDOR']]))
                                 
                                 pdf_found = None
-                                if t_cuenta in mapa_p:
-                                    pdf_found = mapa_p[t_cuenta]
+                                used_key = ""
+                                
+                                for t in targets:
+                                    tn = normalizar_numero(t)
+                                    if tn in mapa_p:
+                                        pdf_found = mapa_p[tn]
+                                        used_key = tn
+                                        break
                                 
                                 if pdf_found:
-                                    zf.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{t_cuenta}.pdf", pdf_found)
+                                    zf.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{used_key}.pdf", pdf_found)
                                     with fitz.open(stream=pdf_found, filetype="pdf") as temp:
                                         merger.insert_pdf(temp)
                                     count_merged += 1
                                 else:
-                                    reporte_faltantes.append(f"{tec} -> {t_cuenta}")
+                                    reporte_faltantes.append(f"{tec} -> {targets[0]}")
 
                             if count_merged > 0:
                                 zf.writestr(f"{safe}/3_PAQUETE_LEGALIZACION.pdf", merger.tobytes())
