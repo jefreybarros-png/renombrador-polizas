@@ -7,13 +7,12 @@ import zipfile
 import unicodedata
 from fpdf import FPDF
 from datetime import datetime
-import urllib.parse
 import requests
 import base64
 import time
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística ITA V148", layout="wide")
+st.set_page_config(page_title="Logística ITA V148 - Final", layout="wide")
 
 st.markdown("""
     <style>
@@ -25,7 +24,7 @@ st.markdown("""
 
 # --- CONFIGURACIÓN DEL BOT ---
 st.sidebar.header("🤖 Configuración del Bot Web")
-# Aquí pegas el link que me pasaste
+# PEGA AQUÍ TU URL DE REPLIT SI QUIERES QUE QUEDE FIJA
 URL_BOT_WEB = st.sidebar.text_input("URL de tu Replit:", value="https://evolution-api--jefreybarros.replit.app")
 LLAVE_ADMIN = st.sidebar.text_input("Contraseña:", value="itasecreto", type="password")
 INSTANCIA = "ita_principal"
@@ -55,7 +54,7 @@ def enviar_pdf_web(numero, pdf_bytes, nombre_archivo, mensaje):
 def natural_sort_key(txt):
     if not txt: return tuple()
     txt = str(txt).upper()
-    # CAMBIO CLAVE: tuple() en lugar de [] evita el error "unhashable type: list"
+    # USAR tuple() ES LO QUE QUITA LA FRANJA ROJA
     return tuple(int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt))
 
 def normalizar_numero(txt):
@@ -98,14 +97,12 @@ t_op, t_bot, t_cfg = st.tabs(["🚀 Procesar y Enviar", "🤖 Vincular WhatsApp"
 with t_cfg:
     f_maestro = st.file_uploader("Subir Maestro (Barrio, Tecnico, Celular)")
     if f_maestro:
-        # Aquí cargamos el archivo de barrios para Barranquilla
-        st.session_state['mapa_actual'] = {} 
-        df_m = pd.read_excel(f_maestro)
+        df_m = pd.read_excel(f_maestro) if f_maestro.name.endswith('.xlsx') else pd.read_csv(f_maestro)
+        mapa = {}
         for _, r in df_m.iterrows():
-            st.session_state['mapa_actual'][str(r.iloc[0]).upper().strip()] = {
-                'nombre': str(r.iloc[1]).upper(), 
-                'celular': normalizar_numero(str(r.iloc[2]))
-            }
+            cel = normalizar_numero(str(r.iloc[2]))
+            mapa[str(r.iloc[0]).upper().strip()] = {'nombre': str(r.iloc[1]).upper(), 'celular': cel}
+        st.session_state['mapa_actual'] = mapa
         st.success("✅ Maestro cargado.")
 
 with t_bot:
@@ -114,7 +111,7 @@ with t_bot:
         if res and "base64" in str(res):
             img_data = res['base64'].split(',')[1]
             st.image(base64.b64decode(img_data), width=350)
-        else: st.error("❌ Sin conexión al servidor bot. Espera que Replit termine de cargar.")
+        else: st.error("❌ Sin conexión. Verifica que el link de Replit sea correcto.")
 
 with t_op:
     c1, c2 = st.columns(2)
@@ -133,19 +130,19 @@ with t_op:
             sel_dir = st.selectbox("DIRECCIÓN:", cols, index=2)
             sel_med = st.selectbox("MEDIDOR:", ["NO TIENE"] + cols, index=0)
 
-        if st.button("🚀 APLICAR CUPOS Y BALANCEAR", type="primary"):
+        if st.button("🚀 BALANCEAR RUTA BLINDADA", type="primary"):
             df = df_raw.copy()
             maestro = st.session_state['mapa_actual']
             df['TECNICO'] = df[sel_bar].apply(lambda x: maestro.get(str(x).upper().strip(), {}).get('nombre', 'SIN_ASIGNAR'))
             df['CELULAR'] = df[sel_bar].apply(lambda x: maestro.get(str(x).upper().strip(), {}).get('celular', ''))
             
-            # ORDENAMIENTO BLINDADO (ALAMEDA DEL RÍO)
+            # ORDENAMIENTO BLINDADO
             df['SORT_D'] = df[sel_dir].astype(str).apply(natural_sort_key)
             df = df.sort_values(by=[sel_bar, 'SORT_D'])
             
             st.session_state['df_simulado'] = df.drop(columns=['SORT_D'])
             st.session_state['col_map'] = {'CUENTA': sel_cta, 'BARRIO': sel_bar, 'DIRECCION': sel_dir, 'MEDIDOR': sel_med}
-            st.success("✅ Ruta balanceada.")
+            st.success("✅ Ruta organizada.")
 
         if st.session_state['df_simulado'] is not None:
             df = st.session_state['df_simulado']
@@ -159,5 +156,5 @@ with t_op:
                         pdf_bytes = crear_pdf_lista(sub, tec, st.session_state['col_map'])
                         msg = f"Hola {tec}, te envío tu ruta de hoy. ¡Dale con toda!"
                         if enviar_pdf_web(cel, pdf_bytes, f"Ruta_{tec}.pdf", msg):
-                            st.success(f"¡Enviado!")
-                        else: st.error("❌ Error: Revisa la conexión en Replit.")
+                            st.success(f"✅ ¡Enviado!")
+                        else: st.error("❌ Error de conexión.")
