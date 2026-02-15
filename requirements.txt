@@ -1,5 +1,6 @@
 streamlit
-pymupdf
 pandas
+pymupdf
 openpyxl
 xlsxwriter
+fpdf
