@@ -9,8 +9,8 @@ from fpdf import FPDF
 from datetime import datetime
 import math
 import numpy as np
-import requests # NUEVO: Para conectar con Koyeb
-import base64   # NUEVO: Para enviar el PDF
+import requests # Para conectar con Koyeb
+import base64   # Para enviar el PDF
 
 # --- CONFIGURACIÓN VISUAL ---
 st.set_page_config(page_title="Logística ITA V137", layout="wide")
@@ -22,17 +22,21 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #262730; color: white; border-radius: 5px; border: 1px solid #41444C; }
     .stTabs [aria-selected="true"] { background-color: #004080; color: white; border: 2px solid #00A8E8; }
     div[data-testid="stDataFrame"] { background-color: #262730; border-radius: 10px; }
+    div[data-testid="stToast"] { background-color: #004080; color: white; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Versión Final Sin Errores")
+st.title("🎯 Logística ITA: Versión Automática")
 
-# --- BARRA LATERAL (CONFIGURACIÓN WHATSAPP) ---
-st.sidebar.markdown("---")
-st.sidebar.header("🤖 Configuración Bot")
-URL_BOT_WEB = st.sidebar.text_input("URL Koyeb:", placeholder="https://tu-app.koyeb.app")
-LLAVE_ADMIN = st.sidebar.text_input("Apikey:", value="itasecreto", type="password")
+# --- 🤖 CONFIGURACIÓN DEL BOT (YA INCLUIDA) ---
+# Aquí están tus datos fijos para que no tengas que escribirlos nunca más
+URL_BOT_WEB = "https://foolish-bird-yefrey-ad8a8551.koyeb.app"
+LLAVE_ADMIN = "itasecreto"
 INSTANCIA = "ita_principal"
+
+# Mostramos en la barra lateral que el sistema está conectado
+st.sidebar.markdown("---")
+st.sidebar.success(f"✅ Sistema Conectado a:\n{URL_BOT_WEB}")
 
 # --- FUNCIONES DE APOYO ---
 def limpiar_estricto(txt):
@@ -58,33 +62,50 @@ def buscar_tecnico_exacto(barrio_input, mapa_barrios):
 
 def cargar_maestro_dinamico(file):
     mapa = {}
+    telefonos = {} 
     try:
-        if file.name.endswith('.csv'): df = pd.read_csv(file, sep=None, engine='python')
-        else: df = pd.read_excel(file)
-        c_b, c_t = df.columns[0], df.columns[1]
+        if file.name.endswith('.csv'): 
+            df = pd.read_csv(file, sep=None, engine='python')
+        else: 
+            df = pd.read_excel(file)
+            
+        df.columns = [str(c).upper().strip() for c in df.columns]
+        
+        col_barrio = next((c for c in df.columns if 'BARRIO' in c or 'SECTOR' in c), df.columns[0])
+        col_tecnico = next((c for c in df.columns if 'TECNICO' in c or 'OPERARIO' in c or 'NOMBRE' in c), df.columns[1])
+        col_tel = next((c for c in df.columns if 'TEL' in c or 'CEL' in c or 'MOVIL' in c), None)
+
         for _, row in df.iterrows():
-            b = limpiar_estricto(str(row[c_b]))
-            t = str(row[c_t]).upper().strip()
-            if t and t != "NAN": mapa[b] = t
-    except: pass
+            b = limpiar_estricto(str(row[col_barrio]))
+            t = str(row[col_tecnico]).upper().strip()
+            
+            if t and t != "NAN": 
+                mapa[b] = t
+                if col_tel and pd.notna(row[col_tel]):
+                    num_limpio = re.sub(r'\D', '', str(row[col_tel]))
+                    if len(num_limpio) == 10:
+                        telefonos[t] = num_limpio
+
+        st.session_state['mapa_telefonos'] = telefonos
+        
+    except Exception as e: 
+        st.error(f"Error leyendo maestro: {e}")
+        
     return mapa
 
-# --- ALGORITMO DE ORDENAMIENTO (CORREGIDO PARA EVITAR ERROR DE LISTA) ---
+# --- ALGORITMO DE ORDENAMIENTO (INTOCABLE) ---
 def natural_sort_key(txt):
-    """Devuelve una tupla (hashable) para evitar el error de list unhashable."""
     if not txt: return tuple()
     txt = str(txt).upper()
-    # Convertimos a tupla para que Pandas pueda procesarlo sin errores
     return tuple(int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt))
 
-# --- FUNCIONES WHATSAPP (NUEVAS) ---
+# --- FUNCIONES WHATSAPP ---
 def obtener_qr_web():
-    if not URL_BOT_WEB: return None
     headers = {"apikey": LLAVE_ADMIN, "Content-Type": "application/json"}
     try:
-        # 1. Intentar crear instancia (por si no existe)
+        # 1. Crear instancia (por si se reinició Koyeb)
         requests.post(f"{URL_BOT_WEB}/instance/create", headers=headers, json={"instanceName": INSTANCIA})
-        # 2. Pedir conexión
+        # 2. Conectar
         res = requests.get(f"{URL_BOT_WEB}/instance/connect/{INSTANCIA}", headers=headers)
         if res.status_code == 200:
             return res.json()
@@ -93,13 +114,9 @@ def obtener_qr_web():
     return None
 
 def enviar_pdf_whatsapp(telefono, pdf_bytes, nombre_archivo, mensaje):
-    if not URL_BOT_WEB or not telefono: return False
     headers = {"apikey": LLAVE_ADMIN, "Content-Type": "application/json"}
-    
-    # Convertir PDF a Base64
     pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
     
-    # Formatear número (57 + numero)
     numero_limpio = re.sub(r'\D', '', str(telefono))
     if not numero_limpio.startswith("57") and len(numero_limpio) == 10:
         numero_limpio = "57" + numero_limpio
@@ -119,7 +136,7 @@ def enviar_pdf_whatsapp(telefono, pdf_bytes, nombre_archivo, mensaje):
     except: pass
     return False
 
-# --- GENERADOR DE PLANILLA PDF ---
+# --- GENERADOR PDF ---
 class PDFListado(FPDF):
     def header(self):
         self.set_fill_color(0, 51, 102) 
@@ -169,19 +186,23 @@ def crear_pdf_lista(df, tecnico, col_map):
 
 # --- INICIO DE SESIÓN ---
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = {}
+if 'mapa_telefonos' not in st.session_state: st.session_state['mapa_telefonos'] = {}
 if 'df_simulado' not in st.session_state: st.session_state['df_simulado'] = None
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
 
-# AHORA SON 4 PESTAÑAS
 tab_op, tab_vis, tab_cfg, tab_bot = st.tabs(["🚀 Carga y Cupos", "🌍 Ajuste Manual", "⚙️ Operarios", "🤖 WhatsApp"])
 
-# --- TAB OPERARIOS ---
+# --- TAB 3: OPERARIOS ---
 with tab_cfg:
-    st.header("Base de Operarios")
-    maestro_file = st.file_uploader("Subir Maestro (Barrio | Técnico)", type=["xlsx", "csv"])
+    st.header("Base de Operarios y Teléfonos")
+    maestro_file = st.file_uploader("Subir Maestro (Barrio | Técnico | Teléfono)", type=["xlsx", "csv"])
     if maestro_file:
         st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_file)
-        st.success("✅ Base Actualizada")
+        total_tec = len(set(st.session_state['mapa_actual'].values()))
+        total_tel = len(st.session_state['mapa_telefonos'])
+        st.success(f"✅ Base Actualizada: {total_tec} Técnicos, {total_tel} Teléfonos listos.")
+        if total_tel > 0:
+            st.info("Teléfonos detectados y guardados.")
 
 lista_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
 TECNICOS_ACTIVOS = []
@@ -191,7 +212,7 @@ if lista_tecnicos:
     for tec in lista_tecnicos:
         if st.sidebar.toggle(f"{tec}", value=all_on): TECNICOS_ACTIVOS.append(tec)
 
-# --- TAB CARGA ---
+# --- TAB 1: CARGA ---
 with tab_op:
     c1, c2 = st.columns(2)
     with c1: pdf_in = st.file_uploader("1. PDF Pólizas", type="pdf")
@@ -234,11 +255,9 @@ with tab_op:
                 df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
                 df['ORIGEN_REAL'] = None
                 
-                # ORDENAMIENTO INICIAL (Barrio -> Dirección)
                 df['SORT_DIR'] = df[sel_dir].astype(str).apply(natural_sort_key)
                 df = df.sort_values(by=[sel_bar, 'SORT_DIR'])
                 
-                # BALANCEO
                 conteo_inicial = df['TECNICO_IDEAL'].value_counts()
                 for giver in [t for t in TECNICOS_ACTIVOS if conteo_inicial.get(t, 0) > LIMITES.get(t, 35)]:
                     tope = LIMITES.get(giver, 35)
@@ -255,7 +274,7 @@ with tab_op:
                 st.success("✅ Completado.")
         except Exception as e: st.error(f"Error: {e}")
 
-# --- TAB VISOR ---
+# --- TAB 2: VISOR ---
 with tab_vis:
     if st.session_state['df_simulado'] is not None:
         df = st.session_state['df_simulado']
@@ -322,7 +341,6 @@ with tab_vis:
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
-                            # --- ORDENAMIENTO BLINDADO POR BARRIO (Usando Tuplas) ---
                             df_t['SORT_DIR'] = df_t[col_map['DIRECCION']].astype(str).apply(natural_sort_key)
                             df_t = df_t.sort_values(by=[col_map['BARRIO'], 'SORT_DIR'])
                             df_t_final = df_t.drop(columns=['SORT_DIR'])
@@ -350,20 +368,21 @@ if st.session_state['zip_listo']:
     st.sidebar.divider()
     st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Final.zip", "application/zip", type="primary")
 
-# --- TAB WHATSAPP (NUEVO MODULO) ---
+# --- TAB 4: WHATSAPP (BOT YA CONFIGURADO) ---
 with tab_bot:
     st.header("📲 Centro de Envíos WhatsApp")
     
     col_qr, col_status = st.columns([1, 2])
     with col_qr:
-        if st.button("🔄 Generar/Recargar QR"):
+        if st.button("🔄 Recargar QR / Reconectar"):
             res = obtener_qr_web()
             if res and "base64" in str(res):
-                # Extraer base64 limpio
                 b64_img = res['base64'].split(',')[1] if ',' in res['base64'] else res['base64']
                 st.image(base64.b64decode(b64_img), caption="Escanea con tu Celular", width=250)
+            elif res and "count" in str(res):
+                 st.success("✅ ¡El Bot ya está conectado!")
             else:
-                st.error("No se pudo conectar con Koyeb. Verifica la URL y la Contraseña.")
+                st.error("No se pudo conectar. Espera 1 minuto a que Koyeb despierte.")
 
     st.divider()
     
@@ -371,35 +390,35 @@ with tab_bot:
         df_w = st.session_state['df_simulado']
         col_map_w = st.session_state['col_map']
         
-        # Obtener lista de técnicos que tienen ruta
         tecnicos_con_ruta = [t for t in sorted(df_w['TECNICO_FINAL'].unique()) if "SIN_" not in t]
         
         st.subheader(f"📢 Enviar Rutas ({len(tecnicos_con_ruta)} técnicos)")
         
         for tec in tecnicos_con_ruta:
             c1, c2, c3 = st.columns([2, 2, 1])
+            
+            # Auto-llenado de teléfono
+            tel_guardado = st.session_state['mapa_telefonos'].get(tec, "")
+            
             with c1: st.info(f"👷 **{tec}**")
-            with c2: telefono = st.text_input(f"Celular {tec}", placeholder="Ej: 3001234567", key=f"tel_{tec}")
+            with c2: telefono = st.text_input(f"Celular {tec}", value=tel_guardado, placeholder="Ej: 3001234567", key=f"tel_{tec}")
             with c3:
-                if st.button(f"Enviar a {tec}", key=f"btn_{tec}"):
+                if st.button(f"📤 Enviar Ruta", key=f"btn_{tec}", type="primary" if telefono else "secondary"):
                     if not telefono:
                         st.warning("⚠️ Falta el número.")
                     else:
-                        with st.spinner("Generando y enviando..."):
-                            # Filtrar y crear PDF al vuelo
+                        with st.spinner(f"Enviando ruta a {tec}..."):
                             df_t_w = df_w[df_w['TECNICO_FINAL'] == tec].copy()
-                            # Usar el ordenamiento blindado (tuplas)
                             df_t_w['SORT_DIR'] = df_t_w[col_map_w['DIRECCION']].astype(str).apply(natural_sort_key)
                             df_t_w = df_t_w.sort_values(by=[col_map_w['BARRIO'], 'SORT_DIR'])
                             df_final_w = df_t_w.drop(columns=['SORT_DIR'])
                             
-                            # Generar bytes del PDF
                             pdf_bytes = crear_pdf_lista(df_final_w, tec, col_map_w)
                             
-                            # Enviar
-                            exito = enviar_pdf_whatsapp(telefono, pdf_bytes, f"Ruta_{tec}.pdf", f"Hola {tec}, aquí tienes tu ruta del día 🚛.")
+                            mensaje = f"Hola *{tec}* 👋.\n\nAquí tienes tu *Hoja de Ruta Digital* 🚛 con {len(df_final_w)} visitas para hoy.\n\n_¡Dale con toda!_"
+                            exito = enviar_pdf_whatsapp(telefono, pdf_bytes, f"Ruta_{tec}.pdf", mensaje)
                             
-                            if exito: st.success("✅ ¡Enviado!")
+                            if exito: st.toast(f"✅ Enviado a {tec}", icon="🚀")
                             else: st.error("❌ Falló el envío.")
     else:
         st.info("Primero debes cargar y procesar la ruta en la pestaña '🚀 Carga y Cupos'.")
