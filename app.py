@@ -10,7 +10,7 @@ from datetime import datetime
 import math
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Dinámica V118", layout="wide")
+st.set_page_config(page_title="Logística Dinámica V119", layout="wide")
 
 st.markdown("""
     <style>
@@ -24,26 +24,27 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Asignación Dinámica de Operarios")
+st.title("🎯 Logística ITA: Asignación Elástica")
 
-# --- 1. CEREBRO MAESTRO POR DEFECTO ---
-MAESTRA_DEFAULT = {
+# --- 1. ESTADO INICIAL (GENÉRICO) ---
+# Esto es lo que se usa si NO subes el archivo de operarios.
+MAESTRA_GENERICA = {
+    # Zona 1
     "BOYACA": "TECNICO 1", "REBOLO": "TECNICO 1", "SAN JOSE": "TECNICO 1", 
+    # Zona 2
     "VILLA SANTOS": "TECNICO 2", "RIOMAR": "TECNICO 2", "LAS FLORES": "TECNICO 2",
+    # Zona 3
     "EL SILENCIO": "TECNICO 3", "LA CUMBRE": "TECNICO 3", "LOS NOGALES": "TECNICO 3",
+    # Zona 4
     "EL PRADO": "TECNICO 4", "BOSTON": "TECNICO 4", "BARRIO ABAJO": "TECNICO 4",
+    # Zona 5
     "EL BOSQUE": "TECNICO 5", "LA PRADERA": "TECNICO 5", "LOS OLIVOS": "TECNICO 5",
+    # Zona 6
     "LA PAZ": "TECNICO 6", "CARIBE VERDE": "TECNICO 6", "VILLAS DE SAN PABLO": "TECNICO 6",
+    # Zona 7
     "LAS NIEVES": "TECNICO 7", "SIMON BOLIVAR": "TECNICO 7", "LA CHINITA": "TECNICO 7",
+    # Zona 8
     "VILLA FLORENCIA": "TECNICO 8", "SIAPE": "TECNICO 8"
-}
-
-# --- 2. VECINDAD (Solo para nombres genéricos) ---
-VECINOS_GENERICOS = {
-    "TECNICO 1": ["TECNICO 7", "TECNICO 6"], "TECNICO 2": ["TECNICO 4", "TECNICO 8"],
-    "TECNICO 3": ["TECNICO 2", "TECNICO 5"], "TECNICO 4": ["TECNICO 2", "TECNICO 7"],
-    "TECNICO 5": ["TECNICO 6", "TECNICO 3"], "TECNICO 6": ["TECNICO 5", "TECNICO 1"],
-    "TECNICO 7": ["TECNICO 1", "TECNICO 4"], "TECNICO 8": ["TECNICO 2", "TECNICO 4"]
 }
 
 # --- FUNCIONES DE LIMPIEZA ---
@@ -70,28 +71,29 @@ def buscar_tecnico_exacto(barrio_input, mapa_barrios):
         if len(k_maestro) > 4 and k_maestro in b_raw: return tecnico
     return "SIN_ASIGNAR"
 
-def cargar_cerebro_excel(file):
+def cargar_maestro_dinamico(file):
     mapa = {}
     try:
         if file.name.endswith('.csv'): df = pd.read_csv(file, sep=None, engine='python')
         else: df = pd.read_excel(file)
         
-        # Asumimos Col 0: BARRIO, Col 1: TECNICO (Cualquier nombre de cabecera)
+        # Detectar columnas (Asumimos 1=Barrio, 2=Tecnico)
         col_barrio = df.columns[0]
         col_tec = df.columns[1]
         
         for _, row in df.iterrows():
             b = limpiar_estricto(str(row[col_barrio]))
             t = str(row[col_tec]).upper().strip()
-            # Eliminar "TECNICO" si viene vacio o NaN
+            # Validar que el nombre del técnico sea válido
             if t and t != "NAN" and t != "":
                 mapa[b] = t
     except Exception as e:
-        st.error(f"Error leyendo archivo maestro: {e}")
-        return MAESTRA_DEFAULT
+        st.error(f"Error leyendo archivo: {e}")
+        return MAESTRA_GENERICA
     return mapa
 
 # --- ALGORITMO ORDENAMIENTO ---
+VALOR_SUFIJOS = {'A': 0.1, 'B': 0.2, 'C': 0.3, 'D': 0.4, 'BIS': 0.05}
 def calcular_peso_js(txt):
     clean = limpiar_estricto(txt)
     penalidad = 5000 if "SUR" in clean else 0
@@ -137,48 +139,58 @@ def crear_pdf(df, tecnico, col_map):
     return pdf.output(dest='S').encode('latin-1')
 
 # --- SESSION STATE ---
-if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = MAESTRA_DEFAULT
+if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = MAESTRA_GENERICA
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
 if 'log_cambios' not in st.session_state: st.session_state['log_cambios'] = None
 
 # ------------------------------------------------------------------
-# 👷 PANEL LATERAL DINÁMICO
+# 👷 PANEL LATERAL ELÁSTICO
 # ------------------------------------------------------------------
 st.sidebar.header("👷 Cuadrilla Detectada")
 
-# Extraer técnicos únicos del mapa cargado
+# 1. Extraer nombres únicos del mapa actual
+# Si es el default, saldrá TECNICO 1..8. Si cargaste Excel, saldrán los nombres reales.
 lista_tecnicos_detectados = sorted(list(set(st.session_state['mapa_actual'].values())))
 TECNICOS_ACTIVOS = []
 
-# Botón para seleccionar todos
-if st.sidebar.checkbox("Seleccionar Todos", value=True):
-    pass # Solo visual, los toggles individuales mandan
+st.sidebar.caption(f"Se encontraron {len(lista_tecnicos_detectados)} perfiles en la base de datos.")
 
+# 2. Generar Toggles Dinámicos
 st.sidebar.markdown("---")
-# Generar Toggles con los nombres REALES
+# Botón maestro
+all_selected = st.sidebar.checkbox("Seleccionar Todos", value=True)
+
 for tec in lista_tecnicos_detectados:
-    if st.sidebar.toggle(f"✅ {tec}", value=True):
+    # Si hay muchos (más de 10), usamos un checkbox compacto, si son pocos, toggle
+    is_active = st.sidebar.toggle(f"✅ {tec}", value=all_selected)
+    if is_active:
         TECNICOS_ACTIVOS.append(tec)
 
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Operarios Activos: {len(TECNICOS_ACTIVOS)}")
+st.sidebar.write(f"**Trabajando hoy:** {len(TECNICOS_ACTIVOS)}")
 
 # --- UI TABS ---
-tab1, tab2, tab3 = st.tabs(["🚀 Operación Diaria", "📊 Resultados & Log", "⚙️ Cargar Operarios/Barrios"])
+tab1, tab2, tab3 = st.tabs(["🚀 Operación", "📊 Resultados", "⚙️ Cargar Personal"])
 
 # --- TAB 3: CARGA MAESTRA ---
 with tab3:
     st.header("Actualizar Base de Operarios")
-    st.info("Sube aquí el archivo 'OPERARIOS_REINSTALACIONES.xlsx'. El sistema actualizará los nombres de la barra lateral automáticamente.")
+    st.markdown("""
+    Sube aquí tu archivo `OPERARIOS_REINSTALACIONES.xlsx`. 
+    - El sistema detectará automáticamente los nombres.
+    - Si agregas un técnico nuevo en el Excel, aparecerá automáticamente en el menú.
+    """)
     maestro_file = st.file_uploader("Subir Maestro (Barrio | Técnico)", type=["xlsx", "csv"])
     
     if maestro_file:
         # Cargar y actualizar estado
-        st.session_state['mapa_actual'] = cargar_cerebro_excel(maestro_file)
-        st.success(f"✅ ¡Actualizado! Se detectaron {len(set(st.session_state['mapa_actual'].values()))} técnicos nuevos. Revisa la barra lateral.")
+        st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_file)
         
-        # Mostrar vista previa de los nuevos técnicos
-        st.write("Tecnicos Detectados:", sorted(list(set(st.session_state['mapa_actual'].values()))))
+        # Detectar nuevos
+        nuevos_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
+        
+        st.success(f"✅ ¡Base Actualizada! Detectados {len(nuevos_tecnicos)} operarios.")
+        st.dataframe(pd.DataFrame(nuevos_tecnicos, columns=["Nombres Detectados"]), height=200)
 
 # --- TAB 1: OPERACIÓN ---
 with tab1:
@@ -203,7 +215,7 @@ with tab1:
             c_dir = find(['DIRECCION', 'DIR'])
 
             if c_barrio and c_cta:
-                # ASIGNACIÓN PREVIA
+                # ASIGNACIÓN
                 df['TECNICO_IDEAL'] = df[c_barrio].apply(lambda x: buscar_tecnico_exacto(str(x), st.session_state['mapa_actual']))
                 
                 # RECOMENDADOR
@@ -212,20 +224,18 @@ with tab1:
                 recomendado = math.ceil(num_ordenes / num_activos) if num_activos > 0 else 35
                 
                 st.divider()
-                st.subheader("⚖️ Configuración del Despacho")
-                TOPE = st.number_input(f"Tope Máximo de Órdenes (Sugerido: {recomendado})", value=recomendado)
+                st.subheader("⚖️ Configuración")
+                TOPE = st.number_input(f"Tope Máximo (Sugerido: {recomendado})", value=recomendado)
                 
                 # ALERTA
                 sin_asignar = df[df['TECNICO_IDEAL'] == "SIN_ASIGNAR"]
                 if not sin_asignar.empty:
-                    st.markdown(f"""<div class="error-box">⚠️ ALERTA: {len(sin_asignar)} órdenes sin barrio conocido.</div>""", unsafe_allow_html=True)
-                    st.dataframe(sin_asignar[[c_barrio, c_dir]].drop_duplicates(subset=[c_barrio]), use_container_width=True)
-                else:
-                    st.markdown("""<div class="success-box">✅ Cobertura Total de Barrios</div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div class="error-box">⚠️ ALERTA: {len(sin_asignar)} barrios desconocidos. Actualiza la Pestaña 3.</div>""", unsafe_allow_html=True)
+                    st.dataframe(sin_asignar[[c_barrio]].drop_duplicates(), use_container_width=True)
 
                 if pdf_in:
-                    if st.button("🚀 BALANCEAR Y GENERAR ZIP", type="primary"):
-                        with st.spinner("Distribuyendo cargas inteligentemente..."):
+                    if st.button("🚀 PROCESAR DESPACHO", type="primary"):
+                        with st.spinner("Balanceando cargas dinámicamente..."):
                             
                             df = df.sort_values(by=['TECNICO_IDEAL', c_barrio])
                             conteo_real = {t: 0 for t in TECNICOS_ACTIVOS}
@@ -240,40 +250,26 @@ with tab1:
                                 if "SIN_ASIGNAR" in ideal:
                                     final = "SIN_ASIGNAR"
                                 else:
-                                    # LOGICA DINÁMICA DE VECINDAD
-                                    # 1. Si el ideal está activo y tiene cupo -> Asignar
+                                    # 1. Asignar al Ideal si activo y con cupo
                                     if ideal in TECNICOS_ACTIVOS and conteo_real[ideal] < TOPE:
                                         final = ideal
                                         conteo_real[ideal] += 1
                                     else:
-                                        # 2. Si no, buscar "Vecino" o "Menos Cargado"
-                                        # Intentar vecindad genérica si aplica
-                                        vecinos = VECINOS_GENERICOS.get(ideal, [])
-                                        encontrado = False
+                                        # 2. DESBORDE INTELIGENTE (Sin vecinos fijos)
+                                        # Buscar el técnico activo con MENOR carga actual
+                                        # Esto permite que funcione con nombres nuevos sin configurar vecinos
+                                        candidatos = [t for t in TECNICOS_ACTIVOS if conteo_real[t] < TOPE]
                                         
-                                        # A. Probar vecinos predefinidos activos
-                                        for v in vecinos:
-                                            if v in TECNICOS_ACTIVOS and conteo_real[v] < TOPE:
-                                                final = f"{v} (APOYO)"
-                                                conteo_real[v] += 1
-                                                encontrado = True
-                                                log_cambios.append({"Barrio": bar, "Razón": "Vecindad", "Original": ideal, "Nuevo": v})
-                                                break
-                                        
-                                        # B. Si no hay vecino fijo o nombres son dinámicos (JORGE MENDOZA)
-                                        # Asignar al que tenga MENOS CARGA actual (Balanceo Universal)
-                                        if not encontrado:
-                                            # Buscar el activo con menor carga
-                                            candidatos = [t for t in TECNICOS_ACTIVOS if conteo_real[t] < TOPE]
-                                            if candidatos:
-                                                # Ordenar por carga ascendente
-                                                mejor_opcion = sorted(candidatos, key=lambda x: conteo_real[x])[0]
-                                                final = f"{mejor_opcion} (BALANCEO)"
-                                                conteo_real[mejor_opcion] += 1
-                                                encontrado = True
-                                                log_cambios.append({"Barrio": bar, "Razón": "Balanceo Carga", "Original": ideal, "Nuevo": mejor_opcion})
+                                        if candidatos:
+                                            # Ordenar candidatos por quién está más libre
+                                            mejor_opcion = sorted(candidatos, key=lambda x: conteo_real[x])[0]
+                                            final = f"{mejor_opcion} (BALANCEO)"
+                                            conteo_real[mejor_opcion] += 1
                                             
-                                        if not encontrado: final = "SIN_GESTOR_ACTIVO"
+                                            motivo = "Cupo Lleno" if ideal in TECNICOS_ACTIVOS else "Ausente"
+                                            log_cambios.append({"Barrio": bar, "Razón": motivo, "Original": ideal, "Nuevo": mejor_opcion})
+                                        else:
+                                            final = f"{ideal} (EXTRA)" # Todos llenos
 
                                 asignacion_final.append(final)
                             
@@ -346,7 +342,7 @@ with tab1:
                             st.session_state['zip_listo'] = zip_buffer.getvalue()
                             st.success("✅ ¡Proceso Terminado!")
             else:
-                st.warning("⚠️ Sube el Excel de la ruta para continuar.")
+                st.warning("⚠️ Sube el Excel para continuar.")
         except Exception as e: st.error(f"Error: {e}")
 
 # --- TAB 2: LOG ---
@@ -357,7 +353,7 @@ with tab2:
     else:
         st.info("Sin movimientos.")
 
-# --- DOWNLOAD ---
+# --- DESCARGA ---
 if st.session_state['zip_listo']:
     st.sidebar.divider()
     st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Dinamica.zip", "application/zip", type="primary")
