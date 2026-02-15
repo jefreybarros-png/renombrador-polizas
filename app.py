@@ -1,20 +1,23 @@
-###############################################################################
-#                                                                             #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA (WEB + GESTIÓN)                      #
-#   VERSION: 4.0 (MASTER FULL CODE)                                           #
-#   AUTOR: YEFREY                                                             #
-#                                                                             #
-#   MÓDULOS INCLUIDOS:                                                        #
-#   1. CARGA DE MAESTROS Y RUTAS                                              #
-#   2. BALANCEO AUTOMÁTICO DE CARGAS                                          #
-#   3. AJUSTE MANUAL DE BARRIOS (VISOR DE MOVIMIENTOS)                        #
-#   4. GENERACIÓN DE ZIP ADMINISTRATIVO (ESTRUCTURA COMPLETA 4 CARPETAS)      #
-#   5. PORTAL WEB PARA TÉCNICOS (SOLO HOJA DE RUTA Y LEGALIZACIÓN)            #
-#                                                                             #
-###############################################################################
+#################################################################################
+#                                                                               #
+#   SISTEMA DE GESTIÓN LOGÍSTICA ITA - PLATAFORMA INTEGRAL (WEB + ADMIN)        #
+#   VERSIÓN: 5.0 ULTIMATE (BLINDADA)                                            #
+#   AUTOR: YEFREY                                                               #
+#   FECHA ACTUALIZACIÓN: FEBRERO 2026                                           #
+#                                                                               #
+#   DESCRIPCIÓN TÉCNICA:                                                        #
+#   Este sistema es un monolito que integra:                                    #
+#   1.  Motor de Lectura de PDFs (PyMuPDF) para extracción de pólizas.          #
+#   2.  Motor de Procesamiento de Datos (Pandas) para balanceo de cargas.       #
+#   3.  Algoritmo de Ordenamiento Natural (Natural Sort) para direcciones.      #
+#   4.  Interfaz de Ajuste Manual para reasignación de zonas/barrios.           #
+#   5.  Sistema de Archivos Local para persistencia temporal (Publicación Web). #
+#   6.  Generador de ZIP Estructurado para respaldo administrativo.             #
+#                                                                               #
+#################################################################################
 
 import streamlit as st
-import fitz  # Librería PyMuPDF para manejar PDFs
+import fitz  # Librería PyMuPDF para manipulación de PDFs
 import pandas as pd
 import re
 import io
@@ -25,57 +28,69 @@ from datetime import datetime
 import os
 import shutil
 import time
+import base64
 
-# =============================================================================
-# 1. CONFIGURACIÓN INICIAL DE LA PÁGINA Y ESTILOS VISUALES
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 1: CONFIGURACIÓN GLOBAL DE LA APLICACIÓN
+# ===============================================================================
 
+# Configuración de la página del navegador
 st.set_page_config(
-    page_title="Logística ITA V4.0",
+    page_title="Logística ITA V5.0",
     layout="wide",
     page_icon="🚛",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': "Sistema Logístico ITA - Versión 5.0 Ultimate"
+    }
 )
 
-# Inyectamos CSS para dar apariencia de aplicación profesional
+# Inyección de CSS Avanzado para mejorar la interfaz de usuario (UI/UX)
 st.markdown("""
     <style>
-    /* Fondo general de la aplicación */
+    /* 1. Fondo y Tipografía Global */
     .stApp { 
         background-color: #0E1117; 
         color: #FAFAFA; 
-        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     
-    /* Estilos para las pestañas (Tabs) */
+    /* 2. Personalización de las Pestañas (Tabs) */
     .stTabs [data-baseweb="tab-list"] { 
-        gap: 8px; 
+        gap: 10px; 
+        padding-bottom: 10px;
     }
     .stTabs [data-baseweb="tab"] { 
-        height: 55px; 
+        height: 60px; 
         background-color: #1F2937; 
-        color: white; 
+        color: #E5E7EB; 
         border-radius: 8px; 
         border: 1px solid #374151; 
         font-weight: 600;
         font-size: 16px;
+        padding: 0 20px;
+        transition: all 0.3s ease;
     }
     .stTabs [aria-selected="true"] { 
         background-color: #2563EB; 
         color: white; 
         border: 2px solid #60A5FA; 
+        box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
     }
     
-    /* Estilos para Dataframes */
+    /* 3. Estilos para Tablas y Dataframes */
     div[data-testid="stDataFrame"] { 
         background-color: #262730; 
-        border-radius: 10px; 
-        padding: 10px;
+        border-radius: 12px; 
+        padding: 15px;
+        border: 1px solid #374151;
     }
     
-    /* Botones de Acción Principal (Azules) */
+    /* 4. Botones de Acción Primaria (Azules - Procesos) */
     div.stButton > button:first-child { 
-        background-color: #2563EB; 
+        background: linear-gradient(90deg, #2563EB 0%, #1D4ED8 100%);
         color: white; 
         border-radius: 10px; 
         height: 55px; 
@@ -84,352 +99,429 @@ st.markdown("""
         font-weight: bold; 
         border: none;
         box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        transition: transform 0.1s;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        transition: transform 0.1s, box-shadow 0.1s;
+    }
+    div.stButton > button:first-child:hover { 
+        background: linear-gradient(90deg, #3B82F6 0%, #2563EB 100%);
+        box-shadow: 0 6px 8px rgba(0,0,0,0.4);
     }
     div.stButton > button:first-child:active {
-        transform: scale(0.98);
+        transform: translateY(2px);
     }
     
-    /* Botones de Descarga (Verdes) */
+    /* 5. Botones de Descarga (Verdes - Archivos) */
     div.stDownloadButton > button:first-child { 
-        background-color: #059669; 
+        background: linear-gradient(90deg, #059669 0%, #047857 100%);
         color: white; 
         border-radius: 10px; 
-        height: 60px; 
+        height: 65px; 
         width: 100%; 
-        font-size: 18px; 
+        font-size: 20px; 
         font-weight: bold; 
         border: 1px solid #34D399;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
     }
-    div.stDownloadButton > button:first-child:hover {
-        background-color: #047857;
+    div.stDownloadButton > button:first-child:hover { 
+        background: linear-gradient(90deg, #10B981 0%, #059669 100%);
     }
 
-    /* Encabezados personalizados */
+    /* 6. Encabezados Especiales para el Portal Técnico */
     .header-tecnico {
-        font-size: 32px;
-        font-weight: 800;
-        color: #34D399;
+        font-size: 36px; 
+        font-weight: 900; 
+        background: -webkit-linear-gradient(#34D399, #059669);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         text-align: center;
-        margin-bottom: 20px;
-        border-bottom: 2px solid #34D399;
+        margin-bottom: 25px; 
+        border-bottom: 3px solid #34D399; 
         padding-bottom: 15px;
     }
     
-    .status-box {
-        padding: 15px;
-        border-radius: 10px;
+    .status-card {
+        padding: 20px; 
+        border-radius: 12px; 
         background-color: #1F2937;
-        border-left: 5px solid #2563EB;
-        margin-bottom: 10px;
+        border-left: 6px solid #2563EB; 
+        margin-bottom: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
+    
+    .status-card h4 { margin: 0; color: #60A5FA; }
+    .status-card p { margin: 5px 0 0 0; color: #9CA3AF; font-size: 14px; }
     </style>
 """, unsafe_allow_html=True)
 
-# =============================================================================
-# 2. GESTIÓN DEL SISTEMA DE ARCHIVOS (CARPETA PÚBLICA)
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 2: GESTIÓN DEL SISTEMA DE ARCHIVOS (PERSISTENCIA WEB)
+# ===============================================================================
 
-# Definimos la carpeta donde se alojarán los archivos para la descarga web
+# Definimos la carpeta raíz para los archivos públicos
 CARPETA_PUBLICA = "public_files"
 
-def inicializar_sistema_archivos():
-    """Crea la estructura de carpetas necesaria si no existe."""
-    if not os.path.exists(CARPETA_PUBLICA):
-        os.makedirs(CARPETA_PUBLICA)
-
-def limpiar_carpeta_publica():
+def gestionar_carpeta_publica(accion="iniciar"):
     """
-    Borra todo el contenido de la carpeta pública para evitar mezclar
-    rutas de días anteriores con las nuevas.
+    Función robusta para manejar la carpeta de archivos públicos.
+    Acciones:
+    - 'iniciar': Crea la carpeta si no existe.
+    - 'limpiar': Borra todo el contenido de forma segura para reiniciar el día.
     """
-    if os.path.exists(CARPETA_PUBLICA):
-        try:
-            shutil.rmtree(CARPETA_PUBLICA)
-            time.sleep(0.5) # Espera técnica para asegurar el borrado
+    if accion == "iniciar":
+        if not os.path.exists(CARPETA_PUBLICA):
+            try:
+                os.makedirs(CARPETA_PUBLICA)
+                print(f"Directorio {CARPETA_PUBLICA} creado.")
+            except Exception as e:
+                st.error(f"Error crítico creando directorio público: {e}")
+                
+    elif accion == "limpiar":
+        if os.path.exists(CARPETA_PUBLICA):
+            try:
+                shutil.rmtree(CARPETA_PUBLICA)
+                # Pequeña pausa para asegurar que el sistema operativo libere los archivos
+                time.sleep(0.2) 
+                os.makedirs(CARPETA_PUBLICA)
+            except Exception as e:
+                st.warning(f"Advertencia al limpiar carpeta (archivos en uso?): {e}")
+                # Intentamos recrear por si acaso
+                if not os.path.exists(CARPETA_PUBLICA):
+                    os.makedirs(CARPETA_PUBLICA)
+        else:
             os.makedirs(CARPETA_PUBLICA)
-        except Exception as e:
-            st.error(f"Error limpiando sistema de archivos: {e}")
-    else:
-        os.makedirs(CARPETA_PUBLICA)
 
-# Ejecutamos la inicialización al arrancar
-inicializar_sistema_archivos()
+# Inicializamos el sistema de archivos al cargar el script
+gestionar_carpeta_publica("iniciar")
 
-# =============================================================================
-# 3. FUNCIONES DE LIMPIEZA Y NORMALIZACIÓN DE DATOS
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 3: BIBLIOTECA DE FUNCIONES DE UTILIDAD (TEXTO Y DATOS)
+# ===============================================================================
 
 def limpiar_estricto(txt):
     """
-    Elimina tildes, caracteres especiales y espacios extra.
-    Convierte todo a mayúsculas para comparaciones exactas.
-    Ejemplo: "San José " -> "SAN JOSE"
+    Normaliza cadenas de texto para comparaciones exactas.
+    1. Convierte a mayúsculas.
+    2. Elimina espacios al inicio y final.
+    3. Elimina tildes y diacríticos (Á -> A, ñ -> n).
     """
     if not txt: return ""
     txt = str(txt).upper().strip()
-    # Normalización Unicode para eliminar acentos (NFD separa caracteres de tildes)
+    # Descomposición Unicode para separar caracteres base de sus acentos
     txt = "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
     return txt
 
 def normalizar_numero(txt):
     """
-    Extrae únicamente los dígitos de una cadena.
-    Útil para limpiar números de cuenta, póliza o celular.
-    Ejemplo: "300-123.45" -> "30012345"
+    Limpia cadenas que deberían ser numéricas (Cuentas, Pólizas).
+    Elimina caracteres no numéricos y corrige el error de punto flotante de Excel.
+    Ejemplo: '12345.0' -> '12345'
     """
     if not txt: return ""
-    # Primero eliminamos el .0 típico de Excel si existe al final
     txt_str = str(txt)
-    if txt_str.endswith('.0'):
+    # Corrección específica para floats de Excel
+    if txt_str.endswith('.0'): 
         txt_str = txt_str[:-2]
-    # Usamos regex para dejar solo dígitos
+    # Regex para dejar solo dígitos 0-9
     nums = re.sub(r'\D', '', txt_str)
     return str(int(nums)) if nums else ""
 
-# =============================================================================
-# 4. ALGORITMO DE ORDENAMIENTO NATURAL (CORE DEL SISTEMA)
-# =============================================================================
-
 def natural_sort_key(txt):
     """
-    Genera una clave de ordenamiento que respeta la numeración humana.
-    Evita que "Calle 10" aparezca antes que "Calle 2".
-    Devuelve una tupla hashable (compatible con Pandas).
+    Algoritmo de Ordenamiento Natural.
+    Permite que 'Calle 2' se ordene antes que 'Calle 10'.
+    Devuelve una tupla de (int, str) bloques para que Python ordene correctamente.
     """
     if not txt: return tuple()
     txt = str(txt).upper()
-    # Divide el texto en bloques de números y no-números
+    # Divide el texto en partes numéricas y no numéricas
     return tuple(int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt))
 
-# =============================================================================
-# 5. FUNCIONES DE LÓGICA DE NEGOCIO (BUSQUEDA Y CARGA)
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 4: LÓGICA DE NEGOCIO (BUSCADORES Y CARGADORES)
+# ===============================================================================
 
 def buscar_tecnico_exacto(barrio_input, mapa_barrios):
     """
-    Busca el técnico responsable de un barrio usando el mapa cargado.
-    Intenta coincidencia exacta, luego sin prefijos, luego parcial.
+    Algoritmo de búsqueda de técnico responsable por barrio.
+    Prioridad:
+    1. Coincidencia exacta (limpia).
+    2. Coincidencia flexible (sin palabras como 'BARRIO', 'URB').
+    3. Coincidencia parcial (substring).
     """
     if not barrio_input: return "SIN_ASIGNAR"
     
-    # 1. Limpieza inicial
+    # 1. Limpieza base
     b_raw = limpiar_estricto(str(barrio_input))
+    if not b_raw: return "SIN_ASIGNAR"
     
-    # 2. Búsqueda directa
+    # 2. Intento Exacto
     if b_raw in mapa_barrios: return mapa_barrios[b_raw]
     
-    # 3. Búsqueda flexible (quitando palabras comunes)
-    patrones_comunes = r'\b(BARRIO|URB|URBANIZACION|SECTOR|ETAPA|VILLA|CIUDADELA)\b'
-    b_flex = re.sub(patrones_comunes, '', b_raw).strip()
+    # 3. Intento Flexible (Quitando prefijos comunes)
+    patrones = r'\b(BARRIO|URB|URBANIZACION|SECTOR|ETAPA|VILLA|CIUDADELA|RESIDENCIAL)\b'
+    b_flex = re.sub(patrones, '', b_raw).strip()
     if b_flex in mapa_barrios: return mapa_barrios[b_flex]
     
-    # 4. Búsqueda inversa (si el barrio del mapa está contenido en el input)
+    # 4. Intento de Contención (Substring) - Con cuidado de no falsos positivos cortos
     for k, v in mapa_barrios.items():
-        if k in b_raw and len(k) > 4: # Evitar coincidencias muy cortas
+        # Verificamos si el barrio del mapa está dentro del input o viceversa
+        # Longitud mínima 4 para evitar que 'SAN' coincida con todo
+        if len(k) > 4 and k in b_raw: 
             return v
             
     return "SIN_ASIGNAR"
 
 def cargar_maestro_dinamico(file):
     """
-    Lee el archivo Excel/CSV de operarios y construye el diccionario
-    Barrio -> Técnico.
+    Carga el archivo maestro de operarios.
+    Soporta .xlsx y .csv.
+    Detecta automáticamente las columnas (Barrio en col 0, Técnico en col 1).
     """
     mapa = {}
     try:
-        # Lectura según extensión
         if file.name.endswith('.csv'): 
             df = pd.read_csv(file, sep=None, engine='python')
         else: 
             df = pd.read_excel(file)
             
-        # Normalizar encabezados a mayúsculas
+        # Normalización de cabeceras
         df.columns = [str(c).upper().strip() for c in df.columns]
         
-        # Asumimos estructura: Columna 0 = Barrio, Columna 1 = Técnico
-        col_barrio = df.columns[0]
-        col_tecnico = df.columns[1]
-
-        for _, row in df.iterrows():
-            b = limpiar_estricto(str(row[col_barrio]))
-            t = str(row[col_tecnico]).upper().strip()
+        # Asunción de estructura: Col 0 = Barrio, Col 1 = Técnico
+        if len(df.columns) < 2:
+            st.error("El archivo maestro debe tener al menos 2 columnas (Barrio, Técnico).")
+            return {}
             
-            # Solo guardamos si hay barrio y técnico válido
+        c_barrio = df.columns[0]
+        c_tecnico = df.columns[1]
+
+        count = 0
+        for _, row in df.iterrows():
+            b = limpiar_estricto(str(row[c_barrio]))
+            t = str(row[c_tecnico]).upper().strip()
+            
             if t and t != "NAN" and b: 
                 mapa[b] = t
+                count += 1
+                
+        # st.write(f"Depuración: Cargados {count} registros del maestro.")
                 
     except Exception as e:
-        st.error(f"Error leyendo el maestro: {e}")
+        st.error(f"Error crítico leyendo el maestro: {str(e)}")
+        return {}
         
     return mapa
 
-# =============================================================================
-# 6. GENERADOR DE PDF (CLASE FPDF PERSONALIZADA)
-# =============================================================================
+def procesar_pdf_polizas_avanzado(file_obj):
+    """
+    Escanea un PDF multipágina y extrae páginas individuales basadas en números de póliza/cuenta.
+    Devuelve un diccionario { 'numero_cuenta': bytes_pdf }.
+    """
+    file_obj.seek(0) # Reiniciar puntero del archivo
+    doc = fitz.open(stream=file_obj.read(), filetype="pdf")
+    diccionario_extraido = {}
+    
+    total_paginas = len(doc)
+    paginas_encontradas = 0
+    
+    for i in range(total_paginas):
+        texto_pagina = doc[i].get_text()
+        
+        # Regex poderosa para encontrar patrones de cuenta/poliza
+        # Busca palabras clave seguidas de números de 4 a 15 dígitos
+        matches = re.findall(r'(?:Póliza|Poliza|Cuenta)\D{0,20}(\d{4,15})', texto_pagina, re.IGNORECASE)
+        
+        if matches:
+            sub_doc = fitz.open()
+            sub_doc.insert_pdf(doc, from_page=i, to_page=i)
+            
+            # Lógica de ANEXOS:
+            # Si la siguiente página NO tiene un número de póliza, asumimos que es continuación de esta.
+            if i + 1 < total_paginas:
+                texto_siguiente = doc[i+1].get_text()
+                if not re.search(r'(?:Póliza|Poliza|Cuenta)', texto_siguiente, re.IGNORECASE):
+                    sub_doc.insert_pdf(doc, from_page=i+1, to_page=i+1)
+            
+            pdf_bytes = sub_doc.tobytes()
+            sub_doc.close()
+            
+            # Guardamos la referencia para cada número encontrado en la página
+            for m in matches:
+                num_limpio = normalizar_numero(m)
+                diccionario_extraido[num_limpio] = pdf_bytes
+                paginas_encontradas += 1
+                
+    return diccionario_extraido
+
+# ===============================================================================
+# SECCIÓN 5: GENERADOR DE REPORTES PDF (FPDF)
+# ===============================================================================
 
 class PDFListado(FPDF):
+    """Clase extendida de FPDF para el formato corporativo de ITA."""
     def header(self):
-        # Cabecera Azul Institucional
+        # Fondo Azul Institucional
         self.set_fill_color(0, 51, 102) 
-        self.rect(0, 0, 297, 20, 'F') # Rectángulo ancho completo (A4 Horizontal)
+        self.rect(0, 0, 297, 20, 'F') # 297mm es el ancho de A4 Horizontal
         
-        # Título
+        # Texto del Título
         self.set_font('Arial', 'B', 16)
         self.set_text_color(255, 255, 255)
         self.set_xy(10, 5)
         self.cell(0, 10, 'UT ITA RADIAN - HOJA DE RUTA DE OPERACIONES', 0, 1, 'C')
         self.ln(10)
 
-def crear_pdf_lista(df, tecnico, col_map):
+def crear_pdf_lista_final(df, tecnico, col_map):
     """
-    Crea el PDF de la Hoja de Ruta para un técnico específico.
-    Retorna los bytes del archivo PDF.
+    Genera el binario del PDF de la Hoja de Ruta.
+    Maneja colores condicionales para barrios de apoyo.
     """
-    # Configuración A4 Horizontal
+    # Configuración: A4, Horizontal (Landscape), Milímetros
     pdf = PDFListado(orientation='L', unit='mm', format='A4')
     pdf.add_page()
     
-    # Subtítulo con Info del Técnico
+    # Subtítulo Informativo
     pdf.set_font('Arial', 'B', 12)
     pdf.set_text_color(0, 0, 0)
-    fecha_hoy = datetime.now().strftime('%d/%m/%Y')
-    pdf.cell(0, 10, f"GESTOR: {tecnico} | FECHA: {fecha_hoy} | TOTAL VISITAS: {len(df)}", 0, 1)
+    fecha_actual = datetime.now().strftime('%d/%m/%Y')
+    total_items = len(df)
     
-    # Configuración de Tabla
+    pdf.cell(0, 10, f"GESTOR: {tecnico} | FECHA: {fecha_actual} | TOTAL VISITAS: {total_items}", 0, 1)
+    
+    # Definición de Columnas
     headers = ['#', 'CUENTA', 'MEDIDOR', 'BARRIO', 'DIRECCION', 'CLIENTE']
-    widths = [10, 25, 25, 65, 85, 60] # Anchos ajustados para que quepa en A4
+    widths = [10, 25, 25, 65, 85, 60] # Suma total: 270mm (aprox margen A4)
     
-    # Dibujar Encabezados (Gris)
-    pdf.set_fill_color(220, 220, 220)
+    # Renderizado de Cabeceras
+    pdf.set_fill_color(220, 220, 220) # Gris claro
     pdf.set_font('Arial', 'B', 9)
     for h, w in zip(headers, widths): 
         pdf.cell(w, 8, h, 1, 0, 'C', 1)
     pdf.ln()
     
-    # Dibujar Filas
+    # Renderizado de Filas
     pdf.set_font('Arial', '', 8)
     
     for idx, (_, row) in enumerate(df.iterrows(), start=1):
-        # Lógica para resaltar Apoyos en Rojo
-        barrio_txt = str(row[col_map['BARRIO']])
+        # Lógica de Color para Apoyos
+        barrio_texto = str(row[col_map['BARRIO']])
+        
         if pd.notna(row.get('ORIGEN_REAL')):
-            # Es un apoyo (viene de otro técnico)
-            barrio_txt = f"[APOYO] {barrio_txt}"
-            pdf.set_text_color(200, 0, 0) # Rojo oscuro
+            # Es un apoyo -> Texto ROJO y etiqueta
+            barrio_texto = f"[APOYO] {barrio_texto}"
+            pdf.set_text_color(200, 0, 0)
         else:
-            pdf.set_text_color(0, 0, 0) # Negro estándar
+            # Es propio -> Texto NEGRO
+            pdf.set_text_color(0, 0, 0)
+        
+        # Función auxiliar segura para obtener datos
+        def get_safe(k):
+            col = col_map.get(k)
+            return str(row[col]) if col and col != "NO TIENE" else ""
 
-        # Obtener valores manejando nulos
-        def get_val(key):
-            col_name = col_map.get(key)
-            if col_name and col_name != "NO TIENE":
-                return str(row[col_name])
-            return ""
-
-        # Preparar fila de datos
-        data_row = [
+        # Datos de la fila
+        fila_datos = [
             str(idx), 
-            get_val('CUENTA'), 
-            get_val('MEDIDOR')[:15], # Recortar si es muy largo
-            barrio_txt[:35], 
-            get_val('DIRECCION')[:55], 
-            get_val('CLIENTE')[:30]
+            get_safe('CUENTA'), 
+            get_safe('MEDIDOR')[:15], # Truncar si es muy largo
+            barrio_texto[:38],        # Truncar barrio
+            get_safe('DIRECCION')[:60], # Truncar dirección
+            get_safe('CLIENTE')[:30]    # Truncar cliente
         ]
         
         # Escribir celdas
-        for val, w in zip(data_row, widths):
+        for val, w in zip(fila_datos, widths):
             try: 
-                # Intentar codificar a latin-1 para FPDF
-                val_enc = val.encode('latin-1', 'replace').decode('latin-1')
+                # Codificación Latin-1 para caracteres españoles
+                val_encoded = val.encode('latin-1', 'replace').decode('latin-1')
             except: 
-                val_enc = val # Si falla, dejar original (aunque puede salir raro)
+                val_encoded = val
             
-            pdf.cell(w, 7, val_enc, 1, 0, 'L')
+            pdf.cell(w, 7, val_encoded, 1, 0, 'L')
         pdf.ln()
         
-    # Retornar el PDF como string binario
+    # Retornar los bytes del PDF
     return pdf.output(dest='S').encode('latin-1')
 
-# =============================================================================
-# 7. GESTIÓN DEL ESTADO DE LA SESIÓN (SESSION STATE)
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 6: GESTIÓN DE VARIABLES DE SESIÓN (ESTADO PERSISTENTE)
+# ===============================================================================
 
-# Inicializamos variables para que no se borren al recargar pestañas
+# Inicializamos todas las variables de sesión si no existen
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = {}
 if 'df_simulado' not in st.session_state: st.session_state['df_simulado'] = None
 if 'col_map_final' not in st.session_state: st.session_state['col_map_final'] = None
 if 'mapa_polizas_cargado' not in st.session_state: st.session_state['mapa_polizas_cargado'] = {}
 if 'zip_admin_ready' not in st.session_state: st.session_state['zip_admin_ready'] = None
+if 'zip_polizas_only' not in st.session_state: st.session_state['zip_polizas_only'] = None
 
-# =============================================================================
-# 8. INTERFAZ PRINCIPAL - BARRA LATERAL (SELECCIÓN DE PERFIL)
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 7: INTERFAZ DE USUARIO - BARRA LATERAL (SIDEBAR)
+# ===============================================================================
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2942/2942813.png", width=80)
     st.title("SISTEMA LOGÍSTICO")
     st.markdown("---")
     
-    # Selector de Modo
-    modo_acceso = st.radio(
+    # Selector de Rol
+    modo_seleccionado = st.radio(
         "Selecciona tu Perfil:", 
         ["👷 TÉCNICO", "⚙️ ADMINISTRADOR"],
-        index=0 # Por defecto Técnico
+        index=0 # Por defecto Técnico para facilidad
     )
     
     st.markdown("---")
-    st.info("Plataforma ITA v4.0\nGestión Integral de Rutas")
+    st.caption("© 2026 - ITA Radian")
+    st.caption("Versión 5.0 Ultimate")
 
-# =============================================================================
-# 9. VISTA DEL TÉCNICO (PORTAL DE DESCARGAS)
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 8: VISTA DEL TÉCNICO (PORTAL DE DESCARGA SIMPLIFICADO)
+# ===============================================================================
 
-if modo_acceso == "👷 TÉCNICO":
+if modo_seleccionado == "👷 TÉCNICO":
     st.markdown('<div class="header-tecnico">🚛 ZONA DE DESCARGA DE RUTAS</div>', unsafe_allow_html=True)
-    st.write("Bienvenido al portal de autogestión. Busca tu nombre para descargar tu programación del día.")
+    st.markdown("<p style='text-align: center; font-size: 18px;'>Bienvenido. Selecciona tu nombre para descargar tu programación del día.</p>", unsafe_allow_html=True)
     
     st.markdown("---")
     
-    # Verificar si existen carpetas públicas
+    # 1. Escanear carpetas disponibles
+    tecnicos_disponibles = []
     if os.path.exists(CARPETA_PUBLICA):
-        # Listar carpetas (cada carpeta es un técnico)
-        tecnicos_disponibles = sorted([
-            d for d in os.listdir(CARPETA_PUBLICA) 
-            if os.path.isdir(os.path.join(CARPETA_PUBLICA, d))
-        ])
-    else:
-        tecnicos_disponibles = []
-        
-    # Lógica de visualización
+        items = os.listdir(CARPETA_PUBLICA)
+        # Filtramos solo directorios
+        tecnicos_disponibles = sorted([d for d in items if os.path.isdir(os.path.join(CARPETA_PUBLICA, d))])
+    
+    # 2. Lógica de visualización
     if not tecnicos_disponibles:
         st.warning("⏳ Aún no se han publicado las rutas del día.")
-        st.info("Por favor espera a que el Coordinador publique la programación.")
-        if st.button("🔄 Consultar Nuevamente"):
+        st.info("Por favor espera a que el Coordinador publique la programación o recarga la página.")
+        if st.button("🔄 Consultar Nuevamente", type="primary"):
             st.rerun()
     else:
-        # Selector de Técnico
+        # Selector Gigante
         seleccion_nombre = st.selectbox(
-            "👇 SELECCIONA TU NOMBRE AQUÍ:", 
+            "👇 BUSCA TU NOMBRE AQUÍ:", 
             ["-- Seleccionar --"] + tecnicos_disponibles
         )
         
         if seleccion_nombre != "-- Seleccionar --":
-            # Rutas a los archivos
+            # Construir rutas de archivos
             ruta_carpeta_tec = os.path.join(CARPETA_PUBLICA, seleccion_nombre)
             archivo_hoja_ruta = os.path.join(ruta_carpeta_tec, "1_HOJA_DE_RUTA.pdf")
             archivo_legalizacion = os.path.join(ruta_carpeta_tec, "3_PAQUETE_LEGALIZACION.pdf")
             
-            st.markdown("### 📥 Tus Documentos Disponibles:")
+            st.markdown(f"### Hola, **{seleccion_nombre}**. Aquí tienes tus documentos:")
             
             col_ruta, col_leg = st.columns(2)
             
-            # --- COLUMNA 1: HOJA DE RUTA ---
+            # --- TARJETA 1: HOJA DE RUTA ---
             with col_ruta:
                 st.markdown("""
-                <div class="status-box">
+                <div class="status-card">
                     <h4>📄 1. Hoja de Ruta</h4>
-                    <p>Listado de clientes y direcciones.</p>
+                    <p>Contiene el listado de visitas, direcciones y medidores.</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -440,118 +532,104 @@ if modo_acceso == "👷 TÉCNICO":
                             data=f,
                             file_name=f"Ruta_{seleccion_nombre}.pdf",
                             mime="application/pdf",
-                            key="dl_ruta"
+                            key="btn_dl_ruta"
                         )
                 else:
-                    st.error("Archivo no encontrado.")
+                    st.error("❌ Archivo no disponible")
 
-            # --- COLUMNA 2: LEGALIZACIÓN ---
+            # --- TARJETA 2: PAQUETE DE LEGALIZACIÓN ---
             with col_leg:
                 st.markdown("""
-                <div class="status-box">
-                    <h4>📂 2. Paquete Legalización</h4>
-                    <p>Pólizas y documentos de soporte.</p>
+                <div class="status-card">
+                    <h4>📂 2. Paquete de Pólizas</h4>
+                    <p>Pólizas agrupadas para legalización (si aplica).</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 if os.path.exists(archivo_legalizacion):
                     with open(archivo_legalizacion, "rb") as f:
                         st.download_button(
-                            label="⬇️ DESCARGAR LEGALIZACIÓN",
+                            label="⬇️ DESCARGAR PAQUETE",
                             data=f,
                             file_name=f"Legalizacion_{seleccion_nombre}.pdf",
                             mime="application/pdf",
-                            key="dl_leg"
+                            key="btn_dl_leg"
                         )
                 else:
                     st.info("ℹ️ Hoy no tienes pólizas asignadas.")
 
-# =============================================================================
-# 10. VISTA DEL ADMINISTRADOR (PANEL DE GESTIÓN COMPLETO)
-# =============================================================================
+# ===============================================================================
+# SECCIÓN 9: VISTA DEL ADMINISTRADOR (PANEL DE CONTROL TOTAL)
+# ===============================================================================
 
-elif modo_acceso == "⚙️ ADMINISTRADOR":
-    st.header("⚙️ Panel de Control Logístico")
+elif modo_seleccionado == "⚙️ ADMINISTRADOR":
+    st.header("⚙️ Panel de Gestión Logística - Modo Admin")
     
-    # Login simple
+    # Login simple pero efectivo
     password_input = st.text_input("Ingrese Contraseña de Administrador:", type="password")
     
-    if password_input == "ita2026": # CONTRASEÑA FIJA
+    if password_input == "ita2026": # CONTRASEÑA DE ACCESO
         
-        # PESTAÑAS DE TRABAJO
+        # CREACIÓN DE LAS 4 PESTAÑAS FUNDAMENTALES
         tab_base, tab_carga, tab_manual, tab_publicar = st.tabs([
-            "1. Base Operarios", 
-            "2. Carga y Balanceo", 
-            "3. Ajuste Manual", 
-            "4. Publicar y Descargar"
+            "1. 🗃️ Base Operarios", 
+            "2. ⚖️ Carga y Balanceo", 
+            "3. 🛠️ Ajuste Manual", 
+            "4. 🌍 Publicar y Descargar"
         ])
         
-        # ---------------------------------------------------------
-        # PESTAÑA 1: BASE DE OPERARIOS
-        # ---------------------------------------------------------
+        # -----------------------------------------------------------------------
+        # PESTAÑA 1: BASE DE OPERARIOS (MAESTRO)
+        # -----------------------------------------------------------------------
         with tab_base:
-            st.subheader("Configuración de Cuadrilla")
+            st.subheader("Configuración de la Cuadrilla")
+            st.markdown("Carga aquí el archivo que relaciona **Barrios** con **Técnicos**.")
+            
             maestro_upload = st.file_uploader("Subir Maestro de Operarios (Excel/CSV)", type=["xlsx", "csv"])
             
             if maestro_upload:
-                st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_upload)
+                with st.spinner("Procesando maestro..."):
+                    st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_upload)
                 st.success(f"✅ Base de datos actualizada: {len(st.session_state['mapa_actual'])} barrios cargados.")
             
+            # Visor de estado actual
             if st.session_state['mapa_actual']:
                 num_tecnicos = len(set(st.session_state['mapa_actual'].values()))
-                st.info(f"Actualmente hay {num_tecnicos} técnicos configurados en el sistema.")
+                st.info(f"Estado: {num_tecnicos} técnicos activos en la base de datos.")
             else:
-                st.warning("⚠️ Carga primero el archivo maestro para continuar.")
+                st.warning("⚠️ El sistema está vacío. Carga el maestro para comenzar.")
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------------------------
         # PESTAÑA 2: CARGA Y BALANCEO AUTOMÁTICO
-        # ---------------------------------------------------------
+        # -----------------------------------------------------------------------
         with tab_carga:
-            st.subheader("Procesamiento de Archivos Diarios")
+            st.subheader("Procesamiento Diario")
             
             col_up1, col_up2 = st.columns(2)
-            with col_up1: 
-                pdf_polizas_up = st.file_uploader("1. PDF de Pólizas (Opcional)", type="pdf")
-            with col_up2: 
-                excel_ruta_up = st.file_uploader("2. Excel de Ruta (Obligatorio)", type=["xlsx", "csv"])
             
-            # PROCESAR PDF DE PÓLIZAS (EXTRACCIÓN)
-            if pdf_polizas_up:
-                if st.button("🔄 Escanear Pólizas del PDF"):
-                    with st.spinner("Analizando PDF..."):
-                        pdf_polizas_up.seek(0)
-                        doc_polizas = fitz.open(stream=pdf_polizas_up.read(), filetype="pdf")
-                        diccionario_polizas = {}
-                        
-                        for i in range(len(doc_polizas)):
-                            texto_pag = doc_polizas[i].get_text()
-                            # Regex flexible para encontrar números de cuenta/poliza
-                            matches = re.findall(r'(?:Póliza|Poliza|Cuenta)\D{0,20}(\d{4,15})', texto_pag, re.IGNORECASE)
-                            
-                            if matches:
-                                sub_doc = fitz.open()
-                                sub_doc.insert_pdf(doc_polizas, from_page=i, to_page=i)
-                                
-                                # Revisar si la siguiente página es anexo (no tiene titulo de poliza)
-                                if i + 1 < len(doc_polizas):
-                                    texto_siguiente = doc_polizas[i+1].get_text()
-                                    if not re.search(r'(?:Póliza|Poliza|Cuenta)', texto_siguiente, re.IGNORECASE):
-                                        sub_doc.insert_pdf(doc_polizas, from_page=i+1, to_page=i+1)
-                                        
-                                bytes_poliza = sub_doc.tobytes()
-                                sub_doc.close()
-                                
-                                for m in matches:
-                                    diccionario_polizas[normalizar_numero(m)] = bytes_poliza
-                                    
-                        st.session_state['mapa_polizas_cargado'] = diccionario_polizas
-                        st.success(f"✅ Se extrajeron {len(diccionario_polizas)} pólizas correctamente.")
+            # UPLOAD 1: PÓLIZAS
+            with col_up1: 
+                st.markdown("##### 1. PDF de Pólizas (Opcional)")
+                pdf_polizas_up = st.file_uploader("Sube el PDF con todas las pólizas", type="pdf")
+                
+                # Botón de escaneo manual (por si acaso)
+                if pdf_polizas_up:
+                    if st.button("🔄 Escanear PDF Manualmente"):
+                        with st.spinner("Analizando PDF..."):
+                            st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(pdf_polizas_up)
+                            st.success(f"✅ {len(st.session_state['mapa_polizas_cargado'])} Pólizas extraídas.")
 
-            # PROCESAR EXCEL DE RUTA
+            # UPLOAD 2: EXCEL DE RUTA
+            with col_up2: 
+                st.markdown("##### 2. Excel de Ruta (Obligatorio)")
+                excel_ruta_up = st.file_uploader("Sube el archivo Excel del día", type=["xlsx", "csv"])
+            
+            # LÓGICA DE PROCESAMIENTO
             lista_tecnicos_activos = sorted(list(set(st.session_state['mapa_actual'].values())))
             
             if excel_ruta_up and lista_tecnicos_activos:
                 try:
+                    # Lectura del Excel
                     if excel_ruta_up.name.endswith('.csv'): 
                         df_ruta = pd.read_csv(excel_ruta_up, sep=None, engine='python', encoding='utf-8-sig')
                     else: 
@@ -562,7 +640,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     st.divider()
                     st.markdown("#### Configuración de Parámetros")
                     
-                    # Tabla de Cupos
+                    # 1. Tabla de Cupos Editables
                     df_cupos = pd.DataFrame({"Técnico": lista_tecnicos_activos, "Cupo": [35]*len(lista_tecnicos_activos)})
                     editor_cupos = st.data_editor(
                         df_cupos, 
@@ -572,7 +650,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     )
                     LIMITES_CUPOS = dict(zip(editor_cupos["Técnico"], editor_cupos["Cupo"]))
                     
-                    # Mapeo de Columnas
+                    # 2. Mapeo de Columnas Inteligente
                     def buscar_indice(keywords): 
                         for i, c in enumerate(columnas_excel): 
                             for k in keywords: 
@@ -594,20 +672,31 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         'CLIENTE': sel_cliente if sel_cliente!="NO TIENE" else None
                     }
                     
+                    st.divider()
+                    
+                    # BOTÓN GRANDE DE EJECUCIÓN
                     if st.button("🚀 EJECUTAR BALANCEO AUTOMÁTICO", type="primary"):
-                        with st.spinner("Asignando zonas y balanceando cargas..."):
+                        
+                        # PASO A: AUTO-ESCANEO DE PÓLIZAS (SEGURIDAD V4.1)
+                        # Si el usuario subió PDF pero olvidó darle al botón de escanear, lo hacemos nosotros.
+                        if pdf_polizas_up and not st.session_state['mapa_polizas_cargado']:
+                            with st.spinner("⚠️ Detecté que no escaneaste el PDF. Escaneando automáticamente..."):
+                                st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(pdf_polizas_up)
+                                st.toast(f"✅ Auto-escaneo completado: {len(st.session_state['mapa_polizas_cargado'])} pólizas.", icon="📂")
+
+                        with st.spinner("Asignando zonas, ordenando direcciones y balanceando cargas..."):
                             df = df_ruta.copy()
                             
-                            # 1. Asignación Inicial
+                            # A. Asignación Inicial
                             df['TECNICO_IDEAL'] = df[sel_barrio].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
                             df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
                             df['ORIGEN_REAL'] = None # Para marcar apoyos
                             
-                            # 2. Ordenamiento Natural (Tuplas)
+                            # B. Ordenamiento Natural (Tuplas) - CRÍTICO PARA RUTA LÓGICA
                             df['SORT_KEY'] = df[sel_direcc].astype(str).apply(natural_sort_key)
                             df = df.sort_values(by=[sel_barrio, 'SORT_KEY'])
                             
-                            # 3. Algoritmo de Balanceo
+                            # C. Algoritmo de Balanceo
                             conteo_actual = df['TECNICO_IDEAL'].value_counts()
                             
                             for tech in [t for t in lista_tecnicos_activos if conteo_actual.get(t, 0) > LIMITES_CUPOS.get(t, 35)]:
@@ -616,7 +705,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 excedente = len(filas_tech) - limite
                                 
                                 if excedente > 0:
-                                    # Tomamos los últimos registros (generalmente los más lejanos)
+                                    # Tomamos los últimos registros (generalmente los más lejanos del barrio)
                                     indices_mover = filas_tech.index[-excedente:]
                                     
                                     # Buscar quien tiene menos carga
@@ -627,17 +716,18 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                     df.loc[indices_mover, 'TECNICO_FINAL'] = candidato
                                     df.loc[indices_mover, 'ORIGEN_REAL'] = tech # Marca de donde vino
                             
-                            # Guardar resultado
+                            # Guardar resultado en sesión
                             st.session_state['df_simulado'] = df.drop(columns=['SORT_KEY'])
                             st.session_state['col_map_final'] = mapa_columnas
-                            st.success("✅ Balanceo completado. Revisa la pestaña 'Ajuste Manual' si necesitas cambios.")
+                            st.success("✅ Balanceo completado exitosamente.")
+                            st.info("Ahora puedes ir a la Pestaña 3 para ajustes manuales o Pestaña 4 para publicar.")
                             
                 except Exception as e:
                     st.error(f"Error procesando archivo: {e}")
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------------------------
         # PESTAÑA 3: AJUSTE MANUAL (MÓDULO RECUPERADO)
-        # ---------------------------------------------------------
+        # -----------------------------------------------------------------------
         with tab_manual:
             st.header("🛠️ Ajuste Manual de Asignaciones")
             st.markdown("Mueve barrios completos de un técnico a otro si el balanceo automático no fue preciso.")
@@ -669,14 +759,14 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     destino_sel = st.selectbox("3. Técnico Destino:", ["-"] + lista_tecnicos_activos)
 
                 with c_accion:
-                    st.write("") # Espaciador
+                    st.write("") # Espaciador vertical
                     st.write("") 
                     if st.button("🔄 MOVER BARRIO", type="primary"):
                         if barrio_sel and destino_sel != "-" and origen_sel != "-":
                             # Extraer nombre limpio del barrio (quitar el conteo)
                             nombre_barrio_real = barrio_sel.rsplit(" (", 1)[0]
                             
-                            # Aplicar filtro y cambio
+                            # Aplicar filtro y cambio en el Dataframe
                             mascara = (df_work['TECNICO_FINAL'] == origen_sel) & (df_work[col_barrio_work] == nombre_barrio_real)
                             
                             df_work.loc[mascara, 'TECNICO_FINAL'] = destino_sel
@@ -684,12 +774,12 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             
                             # Guardar y Recargar
                             st.session_state['df_simulado'] = df_work
-                            st.rerun() # Recarga la página para ver cambios
+                            st.rerun() # Recarga la página para ver cambios instantáneamente
 
                 st.divider()
-                st.subheader("📊 Vista Previa de Cargas")
+                st.subheader("📊 Vista Previa de Cargas (Tiempo Real)")
                 
-                # Visualización de tarjetas
+                # Visualización de tarjetas de carga
                 cols_grid = st.columns(2)
                 for idx, tec in enumerate(tecnicos_en_ruta):
                     with cols_grid[idx % 2]:
@@ -698,7 +788,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         # Agrupar por barrio para resumen
                         resumen_barrios = sub_df.groupby([col_barrio_work, 'ORIGEN_REAL'], dropna=False).size().reset_index(name='Visitas')
                         
-                        # Marcar apoyos visualmente
+                        # Marcar apoyos visualmente en la tabla
                         resumen_barrios['Barrio'] = resumen_barrios.apply(
                             lambda x: f"⚠️ {x[col_barrio_work]} (APOYO)" if pd.notna(x['ORIGEN_REAL']) else x[col_barrio_work], 
                             axis=1
@@ -710,11 +800,11 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             else:
                 st.info("⚠️ Primero debes cargar y procesar la ruta en la Pestaña 2.")
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------------------------
         # PESTAÑA 4: PUBLICACIÓN Y DESCARGAS
-        # ---------------------------------------------------------
+        # -----------------------------------------------------------------------
         with tab_publicar:
-            st.header("🌍 Publicación Final")
+            st.header("🌍 Gestión Final y Distribución")
             
             if st.session_state['df_simulado'] is not None:
                 df_final = st.session_state['df_simulado']
@@ -723,18 +813,25 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 
                 tecnicos_finales = [t for t in df_final['TECNICO_FINAL'].unique() if "SIN_" not in t]
                 
-                st.markdown("### 1. Publicar en Portal Web")
-                st.info("Esto generará los PDFs y los pondrá disponibles para que los técnicos descarguen.")
+                # --- AVISO SOBRE PÓLIZAS ---
+                if not polizas_cargadas:
+                    st.warning("⚠️ ADVERTENCIA: No se cargaron pólizas. Las carpetas de legalización estarán vacías.")
+                else:
+                    st.success(f"✅ {len(polizas_cargadas)} Pólizas listas para distribuir.")
+
+                # --- SECCIÓN A: PUBLICACIÓN WEB ---
+                st.markdown("### 1. Publicar en Portal Web (Técnicos)")
+                st.info("Al hacer clic, se limpiarán los archivos de ayer y se generarán los nuevos PDFs para descarga.")
                 
-                if st.button("📢 PUBLICAR RUTAS EN WEB", type="primary"):
+                if st.button("📢 PUBLICAR RUTAS AHORA", type="primary"):
                     limpiar_carpeta_publica()
                     barra_progreso = st.progress(0)
                     
                     for i, tec in enumerate(tecnicos_finales):
-                        # Filtrar datos del técnico
+                        # Preparar Datos
                         df_t = df_final[df_final['TECNICO_FINAL'] == tec].copy()
                         
-                        # RE-ORDENAMIENTO FINAL (Seguridad)
+                        # RE-ORDENAMIENTO FINAL (Para asegurar coherencia)
                         df_t['SORT_TEMP'] = df_t[mapa_cols_final['DIRECCION']].astype(str).apply(natural_sort_key)
                         df_t = df_t.sort_values(by=[mapa_cols_final['BARRIO'], 'SORT_TEMP']).drop(columns=['SORT_TEMP'])
                         
@@ -743,41 +840,55 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         ruta_carpeta_tec = os.path.join(CARPETA_PUBLICA, nombre_seguro)
                         os.makedirs(ruta_carpeta_tec, exist_ok=True)
                         
-                        # 1. GENERAR HOJA DE RUTA
-                        bytes_hoja = crear_pdf_lista(df_t, tec, mapa_cols_final)
+                        # A. GENERAR HOJA DE RUTA
+                        bytes_hoja = crear_pdf_lista_final(df_t, tec, mapa_cols_final)
                         with open(os.path.join(ruta_carpeta_tec, "1_HOJA_DE_RUTA.pdf"), "wb") as f:
                             f.write(bytes_hoja)
                         
-                        # 2. GENERAR PAQUETE LEGALIZACIÓN (MERGE PÓLIZAS)
-                        merger = fitz.open()
-                        count_pols = 0
-                        for _, row in df_t.iterrows():
-                            cta = normalizar_numero(str(row[mapa_cols_final['CUENTA']]))
-                            if cta in polizas_cargadas:
-                                with fitz.open(stream=polizas_cargadas[cta], filetype="pdf") as tmp:
-                                    merger.insert_pdf(tmp)
-                                count_pols += 1
-                        
-                        if count_pols > 0:
-                            with open(os.path.join(ruta_carpeta_tec, "3_PAQUETE_LEGALIZACION.pdf"), "wb") as f:
-                                f.write(merger.tobytes())
-                        merger.close()
+                        # B. GENERAR PAQUETE LEGALIZACIÓN (MERGE)
+                        if polizas_cargadas:
+                            merger = fitz.open()
+                            count_pols = 0
+                            for _, row in df_t.iterrows():
+                                cta = normalizar_numero(str(row[mapa_cols_final['CUENTA']]))
+                                if cta in polizas_cargadas:
+                                    with fitz.open(stream=polizas_cargadas[cta], filetype="pdf") as tmp:
+                                        merger.insert_pdf(tmp)
+                                    count_pols += 1
+                            
+                            if count_pols > 0:
+                                with open(os.path.join(ruta_carpeta_tec, "3_PAQUETE_LEGALIZACION.pdf"), "wb") as f:
+                                    f.write(merger.tobytes())
+                            merger.close()
                         
                         barra_progreso.progress((i + 1) / len(tecnicos_finales))
                         
-                    st.success(f"✅ ¡Publicación Exitosa! {len(tecnicos_finales)} técnicos habilitados.")
+                    st.success(f"✅ ¡Publicación Exitosa! {len(tecnicos_finales)} técnicos ya pueden descargar.")
                     st.balloons()
 
                 st.divider()
-                st.markdown("### 2. Descarga Administrativa (ZIP Completo)")
-                st.caption("Descarga el paquete completo con las 4 carpetas (Hoja, Tabla, Legalización, Pólizas).")
+                
+                # --- SECCIÓN B: DESCARGA ADMIN (ZIP COMPLETO) ---
+                st.markdown("### 2. Descarga Administrativa (Respaldo Total)")
+                st.caption("Genera un ZIP con la estructura completa de carpetas (1, 2, 3, 4) + Banco de Pólizas.")
                 
                 if st.button("📦 GENERAR ZIP MAESTRO"):
                     with st.spinner("Compilando estructura completa..."):
                         zip_memoria = io.BytesIO()
                         
                         with zipfile.ZipFile(zip_memoria, "w") as zf:
-                            # Iterar por técnico
+                            
+                            # CARPETA 00: BANCO DE PÓLIZAS (CRÍTICO - LO QUE FALTABA ANTES)
+                            if polizas_cargadas:
+                                for k, v in polizas_cargadas.items():
+                                    zf.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{k}.pdf", v)
+                            
+                            # CARPETA 00: CONSOLIDADO EXCEL
+                            excel_total = io.BytesIO()
+                            with pd.ExcelWriter(excel_total, engine='xlsxwriter') as w: df_final.to_excel(w, index=False)
+                            zf.writestr("00_CONSOLIDADO_GENERAL.xlsx", excel_total.getvalue())
+
+                            # CARPETAS POR TÉCNICO
                             for tec in tecnicos_finales:
                                 safe_name = str(tec).replace(" ", "_")
                                 df_t = df_final[df_final['TECNICO_FINAL'] == tec].copy()
@@ -786,41 +897,38 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 df_t['SORT_TEMP'] = df_t[mapa_cols_final['DIRECCION']].astype(str).apply(natural_sort_key)
                                 df_t = df_t.sort_values(by=[mapa_cols_final['BARRIO'], 'SORT_TEMP']).drop(columns=['SORT_TEMP'])
                                 
-                                # 1_HOJA_DE_RUTA
-                                pdf_ruta = crear_pdf_lista(df_t, tec, mapa_cols_final)
+                                # 1. HOJA DE RUTA
+                                pdf_ruta = crear_pdf_lista_final(df_t, tec, mapa_cols_final)
                                 zf.writestr(f"{safe_name}/1_HOJA_DE_RUTA.pdf", pdf_ruta)
                                 
-                                # 2_TABLA_DIGITAL
+                                # 2. TABLA DIGITAL
                                 excel_buffer = io.BytesIO()
                                 with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
                                     df_t.to_excel(writer, index=False)
                                 zf.writestr(f"{safe_name}/2_TABLA_DIGITAL.xlsx", excel_buffer.getvalue())
                                 
-                                # 3_PAQUETE Y 4_POLIZAS
-                                merger = fitz.open()
-                                count_p = 0
-                                for _, row in df_t.iterrows():
-                                    cta = normalizar_numero(str(row[mapa_cols_final['CUENTA']]))
-                                    if cta in polizas_cargadas:
-                                        # Guardar Individual en carpeta 4
-                                        zf.writestr(f"{safe_name}/4_POLIZAS_INDIVIDUALES/{cta}.pdf", polizas_cargadas[cta])
-                                        # Agregar al merge de carpeta 3
-                                        with fitz.open(stream=polizas_cargadas[cta], filetype="pdf") as tmp:
-                                            merger.insert_pdf(tmp)
-                                        count_p += 1
-                                
-                                if count_p > 0:
-                                    zf.writestr(f"{safe_name}/3_PAQUETE_LEGALIZACION.pdf", merger.tobytes())
-                                merger.close()
-                                
-                            # Archivo General
-                            excel_total = io.BytesIO()
-                            with pd.ExcelWriter(excel_total, engine='xlsxwriter') as w: df_final.to_excel(w, index=False)
-                            zf.writestr("00_CONSOLIDADO_GENERAL.xlsx", excel_total.getvalue())
+                                # 3 y 4. PÓLIZAS (MERGE E INDIVIDUAL)
+                                if polizas_cargadas:
+                                    merger = fitz.open()
+                                    count_p = 0
+                                    for _, row in df_t.iterrows():
+                                        cta = normalizar_numero(str(row[mapa_cols_final['CUENTA']]))
+                                        if cta in polizas_cargadas:
+                                            # CARPETA 4: INDIVIDUALES
+                                            zf.writestr(f"{safe_name}/4_POLIZAS_INDIVIDUALES/{cta}.pdf", polizas_cargadas[cta])
+                                            # CARPETA 3: MERGE
+                                            with fitz.open(stream=polizas_cargadas[cta], filetype="pdf") as tmp:
+                                                merger.insert_pdf(tmp)
+                                            count_p += 1
+                                    
+                                    if count_p > 0:
+                                        zf.writestr(f"{safe_name}/3_PAQUETE_LEGALIZACION.pdf", merger.tobytes())
+                                    merger.close()
 
                         st.session_state['zip_admin_ready'] = zip_memoria.getvalue()
                         st.success("ZIP Generado correctamente.")
 
+                # BOTÓN DE DESCARGA ZIP
                 if st.session_state['zip_admin_ready']:
                     st.download_button(
                         label="⬇️ DESCARGAR ZIP ADMINISTRATIVO",
@@ -829,7 +937,11 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         mime="application/zip"
                     )
             else:
-                st.info("Procesa la ruta primero.")
+                st.info("Procesa la ruta primero en la pestaña 2.")
 
     elif password_input:
         st.error("❌ Contraseña Incorrecta")
+
+# ===============================================================================
+# FIN DEL SISTEMA
+# ===============================================================================
