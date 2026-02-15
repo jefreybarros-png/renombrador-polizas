@@ -11,7 +11,7 @@ import math
 import numpy as np
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Flexible V135", layout="wide")
+st.set_page_config(page_title="Logística Ordenada V136", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,7 +23,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Búsqueda Flexible de Pólizas")
+st.title("🎯 Logística ITA: Ordenamiento por Barrio Estricto")
 
 # --- FUNCIONES ---
 def limpiar_estricto(txt):
@@ -60,14 +60,11 @@ def cargar_maestro_dinamico(file):
     except: pass
     return mapa
 
-def calcular_peso_js(txt):
-    clean = limpiar_estricto(str(txt))
-    penalidad = 5000 if "SUR" in clean else 0
-    nums = re.findall(r'(\d+)', clean)
-    ref = int(nums[0]) if nums else 0
-    if "CL" in clean or "CALLE" in clean: peso = (110 - ref) * 1000
-    else: peso = ref * 1000
-    return peso + penalidad + (int(nums[1]) if len(nums)>1 else 0)
+# ALGORITMO "NATURAL SORT" (Para que CL 2 vaya antes que CL 10)
+def natural_sort_key(txt):
+    txt = str(txt).upper()
+    # Separa texto y números: "CL 117 A" -> ["CL ", 117, " A"]
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt)]
 
 # PDF LISTADO
 class PDFListado(FPDF):
@@ -164,14 +161,14 @@ with tab_operacion:
             else: df_raw = pd.read_excel(excel_in)
             cols_excel = list(df_raw.columns)
             
-            # SECCIÓN A: CUPOS
+            # CUPOS
             st.divider()
             st.subheader("⚖️ Cupos Individuales")
             df_topes_init = pd.DataFrame({"Técnico": TECNICOS_ACTIVOS, "Cupo Máximo": [35] * len(TECNICOS_ACTIVOS)})
             edited_topes = st.data_editor(df_topes_init, column_config={"Cupo Máximo": st.column_config.NumberColumn(min_value=1, max_value=200, step=1)}, hide_index=True, use_container_width=True)
             LIMITES_INDIVIDUALES = dict(zip(edited_topes["Técnico"], edited_topes["Cupo Máximo"]))
 
-            # SECCIÓN B: MAPEO
+            # MAPEO
             st.divider()
             st.subheader("🔗 Mapeo de Columnas")
             def idx_of(keywords):
@@ -202,12 +199,19 @@ with tab_operacion:
                 df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
                 df['ORIGEN_REAL'] = None
                 
-                # Ordenar
+                # --- ORDENAMIENTO CRUCIAL (BARRIO PRIMERO, LUEGO DIRECCIÓN) ---
                 if sel_dir:
-                    df['P_TEMP'] = df[sel_dir].astype(str).apply(calcular_peso_js)
-                    df = df.sort_values(by=['TECNICO_IDEAL', 'P_TEMP'])
+                    # Creamos una columna temporal con el valor "Natural" para ordenar
+                    # Usamos una lambda que devuelve una tupla (Barrio, Direccion)
+                    # Pero pandas sort_values acepta lista de columnas.
+                    
+                    # 1. Crear columna de orden natural para dirección
+                    df['SORT_DIR'] = df[sel_dir].astype(str).apply(natural_sort_key)
+                    
+                    # 2. Ordenar PRIMERO por Barrio, LUEGO por Dirección
+                    df = df.sort_values(by=[sel_bar, 'SORT_DIR'])
                 
-                # Balanceo Estricto
+                # BALANCEO ESTRICTO
                 conteo_inicial = df['TECNICO_IDEAL'].value_counts()
                 overs = [t for t in TECNICOS_ACTIVOS if conteo_inicial.get(t, 0) > LIMITES_INDIVIDUALES.get(t, 35)]
                 
@@ -216,7 +220,9 @@ with tab_operacion:
                     rows = df[df['TECNICO_FINAL'] == giver]
                     excedente = len(rows) - tope
                     if excedente > 0:
+                        # Cortar las últimas (que ya están ordenadas por barrio/dirección)
                         idx_move = rows.index[-excedente:]
+                        
                         counts_now = df['TECNICO_FINAL'].value_counts()
                         best_cand = None
                         max_space = -1
@@ -283,7 +289,7 @@ with tab_visor:
         st.divider()
         if pdf_in:
             if st.button("✅ GENERAR PAQUETE ESTRUCTURADO", type="primary"):
-                with st.spinner("Procesando PDFs..."):
+                with st.spinner("Indexando PDFs (Jerarquía Estricta)..."):
                     df['CARPETA'] = df['TECNICO_FINAL']
                     
                     pdf_in.seek(0)
@@ -294,7 +300,6 @@ with tab_visor:
                         txt = doc[i].get_text()
                         
                         # --- EXTRACCIÓN FLEXIBLE ---
-                        # Busca "Póliza" o "Cuenta", ignora hasta 20 caracteres basura, y toma el número
                         regex_flex = r'(?:Póliza|Poliza|Cuenta)\D{0,20}(\d{4,15})'
                         matches = re.findall(regex_flex, txt, re.IGNORECASE)
                         
@@ -314,7 +319,6 @@ with tab_visor:
                     # ZIP
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w") as zf:
-                        # AFUERA
                         for k_num, p_bytes in mapa_p.items():
                             if len(k_num) > 4: zf.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{k_num}.pdf", p_bytes)
                         
@@ -329,18 +333,23 @@ with tab_visor:
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
+                            # --- ORDENAMIENTO FINAL POR BARRIO ---
                             c_dir = col_map.get('DIRECCION')
                             if c_dir:
-                                df_t['P'] = df_t[c_dir].astype(str).apply(calcular_peso_js)
-                                df_t = df_t.sort_values('P')
+                                df_t['SORT_DIR'] = df_t[c_dir].astype(str).apply(natural_sort_key)
+                                # AQUÍ ESTÁ EL CAMBIO CLAVE: Primero Barrio, Luego Dirección
+                                df_t = df_t.sort_values(by=[col_map['BARRIO'], 'SORT_DIR'])
                             
+                            # 1. LISTADO
                             pdf_h = crear_pdf_lista(df_t, tec, col_map)
                             zf.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", pdf_h)
                             
+                            # 2. EXCEL
                             out_t = io.BytesIO()
                             with pd.ExcelWriter(out_t, engine='xlsxwriter') as w: df_t.to_excel(w, index=False)
                             zf.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", out_t.getvalue())
                             
+                            # 3. POLIZAS
                             merger = fitz.open()
                             count_merged = 0
                             
