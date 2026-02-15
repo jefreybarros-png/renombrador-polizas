@@ -10,9 +10,8 @@ from datetime import datetime
 import math
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Jefe V117", layout="wide")
+st.set_page_config(page_title="Logística Dinámica V118", layout="wide")
 
-# ESTILOS MODO OSCURO MEJORADO
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #FAFAFA; }
@@ -25,67 +24,29 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Panel de Control de Cuadrilla")
+st.title("🎯 Logística ITA: Asignación Dinámica de Operarios")
 
-# --- 1. CEREBRO MAESTRO ---
+# --- 1. CEREBRO MAESTRO POR DEFECTO ---
 MAESTRA_DEFAULT = {
-    # TECNICO 1
-    "BOYACA": "TECNICO 1", "REBOLO": "TECNICO 1", "SAN JOSE": "TECNICO 1", "SANTA MONICA": "TECNICO 1",
-    "BELLARENA": "TECNICO 1", "EL PARQUE": "TECNICO 1", "LA ALBORAYA": "TECNICO 1", "EL CAMPITO": "TECNICO 1",
-    "LA MAGDALENA": "TECNICO 1", "PASADENA": "TECNICO 1", "EL LIMON": "TECNICO 1", "LA CHINITA": "TECNICO 1",
-    "LA LUZ": "TECNICO 1", "LAS NIEVES": "TECNICO 1", "LA UNION": "TECNICO 1", "LAS PALMAS": "TECNICO 1",
-    "VILLA DEL CARMEN": "TECNICO 1", "LOS TRUPILLOS": "TECNICO 1", "SAN NICOLAS": "TECNICO 1",
-    "SIMON BOLIVAR": "TECNICO 1", "TAYRONA": "TECNICO 1", "UNIVERSAL": "TECNICO 1", "EL MILAGRO": "TECNICO 1",
-    
-    # TECNICO 2
-    "COLOMBIA": "TECNICO 2", "EL PORVENIR": "TECNICO 2", "LA FLORIDA": "TECNICO 2", "SAN FELIPE": "TECNICO 2",
-    "NUEVA GRANADA": "TECNICO 2", "SAN FRANCISCO": "TECNICO 2", "VILLA SANTOS": "TECNICO 2", "RIOMAR": "TECNICO 2",
-    "ALTOS DE RIOMAR": "TECNICO 2", "EL GOLF": "TECNICO 2", "SAN VICENTE": "TECNICO 2", "EL POBLADO": "TECNICO 2",
-    "GRANADILLO": "TECNICO 2", "VILLA CAROLINA": "TECNICO 2", "PARAISO": "TECNICO 2", "LAS FLORES": "TECNICO 2",
-    "SIAPE": "TECNICO 2", "SAN SALVADOR": "TECNICO 2", "CIA": "TECNICO 2", "AMERICA": "TECNICO 2",
-
-    # TECNICO 3
-    "EL SILENCIO": "TECNICO 3", "LA CUMBRE": "TECNICO 3", "LOS NOGALES": "TECNICO 3", "CAMPO ALEGRE": "TECNICO 3",
-    "LAS ESTRELLAS": "TECNICO 3", "CIUDAD JARDIN": "TECNICO 3", "MERCEDES": "TECNICO 3", "LOS ALPES": "TECNICO 3",
-    "LAS TERRAZAS": "TECNICO 3", "PORVENIR": "TECNICO 3", "LA LIBERTAD": "TECNICO 3",
-    
-    # TECNICO 4
-    "EL PRADO": "TECNICO 4", "BOSTON": "TECNICO 4", "BARRIO ABAJO": "TECNICO 4", "MODELO": "TECNICO 4",
-    "MONTECRISTO": "TECNICO 4", "BELLAVISTA": "TECNICO 4", "SANTA ANA": "TECNICO 4", "LA CONCEPCION": "TECNICO 4",
-    "CENTRO": "TECNICO 4", "ROSARIO": "TECNICO 4", "BARLOVENTO": "TECNICO 4", "VILLANUEVA": "TECNICO 4",
-
-    # TECNICO 5
-    "LA PRADERA": "TECNICO 5", "LOS OLIVOS": "TECNICO 5", "LA MANGA": "TECNICO 5", "MEQUEJO": "TECNICO 5",
-    "POR FIN": "TECNICO 5", "LA ESMERALDA": "TECNICO 5", "VILLA SAN PEDRO": "TECNICO 5", "LOS ANGELES": "TECNICO 5",
-    "7 DE AGOSTO": "TECNICO 5", "EVARISTO SOURDIS": "TECNICO 5", "LIPAYA": "TECNICO 5",
-
-    # TECNICO 6
-    "EL BOSQUE": "TECNICO 6", "CALIFORNIA": "TECNICO 6", "VILLAS DE LA CORDIALIDAD": "TECNICO 6", "METRO PARQUE": "TECNICO 6",
-    "LA PAZ": "TECNICO 6", "LOS ROSALES": "TECNICO 6", "VILLA DEL ROSARIO": "TECNICO 6", "CARIBE VERDE": "TECNICO 6",
-    "EL PUEBLO": "TECNICO 6", "EL ROMANCE": "TECNICO 6", "VILLA DE SAN PABLO": "TECNICO 6", "CIUDAD MODESTO": "TECNICO 6",
-    "LAS MALVINAS": "TECNICO 6", "LA GLORIA": "TECNICO 6", "LA CORDIALIDAD": "TECNICO 6", "ALAMEDA DEL RIO": "TECNICO 6",
-    
-    # TECNICO 7
-    "ATLANTICO": "TECNICO 7", "BOYACA SUR": "TECNICO 7", "CHIQUINQUIRA": "TECNICO 7", "SAN ROQUE": "TECNICO 7",
-    "TRES AVE MARIAS": "TECNICO 7", "SAN ISIDRO": "TECNICO 7", "LOMA FRESCA": "TECNICO 7", "LUCERO": "TECNICO 7",
-    
-    # TECNICO 8
-    "VILLA FLORENCIA": "TECNICO 8", "VILLA DEL ESTE": "TECNICO 8", "FLORENCIA": "TECNICO 8"
+    "BOYACA": "TECNICO 1", "REBOLO": "TECNICO 1", "SAN JOSE": "TECNICO 1", 
+    "VILLA SANTOS": "TECNICO 2", "RIOMAR": "TECNICO 2", "LAS FLORES": "TECNICO 2",
+    "EL SILENCIO": "TECNICO 3", "LA CUMBRE": "TECNICO 3", "LOS NOGALES": "TECNICO 3",
+    "EL PRADO": "TECNICO 4", "BOSTON": "TECNICO 4", "BARRIO ABAJO": "TECNICO 4",
+    "EL BOSQUE": "TECNICO 5", "LA PRADERA": "TECNICO 5", "LOS OLIVOS": "TECNICO 5",
+    "LA PAZ": "TECNICO 6", "CARIBE VERDE": "TECNICO 6", "VILLAS DE SAN PABLO": "TECNICO 6",
+    "LAS NIEVES": "TECNICO 7", "SIMON BOLIVAR": "TECNICO 7", "LA CHINITA": "TECNICO 7",
+    "VILLA FLORENCIA": "TECNICO 8", "SIAPE": "TECNICO 8"
 }
 
-# --- 2. VECINDAD LÓGICA (PLAN DE CONTINGENCIA) ---
-VECINOS = {
-    "TECNICO 1": ["TECNICO 7", "TECNICO 6", "TECNICO 4"],
-    "TECNICO 2": ["TECNICO 4", "TECNICO 3", "TECNICO 8"],
-    "TECNICO 3": ["TECNICO 2", "TECNICO 5", "TECNICO 4"],
-    "TECNICO 4": ["TECNICO 2", "TECNICO 7", "TECNICO 1"],
-    "TECNICO 5": ["TECNICO 6", "TECNICO 3", "TECNICO 5"],
-    "TECNICO 6": ["TECNICO 5", "TECNICO 1", "TECNICO 3"], 
-    "TECNICO 7": ["TECNICO 1", "TECNICO 4", "TECNICO 6"],
-    "TECNICO 8": ["TECNICO 2", "TECNICO 4", "TECNICO 1"]
+# --- 2. VECINDAD (Solo para nombres genéricos) ---
+VECINOS_GENERICOS = {
+    "TECNICO 1": ["TECNICO 7", "TECNICO 6"], "TECNICO 2": ["TECNICO 4", "TECNICO 8"],
+    "TECNICO 3": ["TECNICO 2", "TECNICO 5"], "TECNICO 4": ["TECNICO 2", "TECNICO 7"],
+    "TECNICO 5": ["TECNICO 6", "TECNICO 3"], "TECNICO 6": ["TECNICO 5", "TECNICO 1"],
+    "TECNICO 7": ["TECNICO 1", "TECNICO 4"], "TECNICO 8": ["TECNICO 2", "TECNICO 4"]
 }
 
-# --- FUNCIONES ---
+# --- FUNCIONES DE LIMPIEZA ---
 def limpiar_estricto(txt):
     if not txt: return ""
     txt = str(txt).upper().strip()
@@ -103,6 +64,7 @@ def buscar_tecnico_exacto(barrio_input, mapa_barrios):
     if b_raw in mapa_barrios: return mapa_barrios[b_raw]
     b_flex = limpiar_flexible(barrio_input)
     if b_flex in mapa_barrios: return mapa_barrios[b_flex]
+    # Búsqueda contenida
     for k_maestro, tecnico in mapa_barrios.items():
         if k_maestro == b_flex: return tecnico
         if len(k_maestro) > 4 and k_maestro in b_raw: return tecnico
@@ -113,18 +75,23 @@ def cargar_cerebro_excel(file):
     try:
         if file.name.endswith('.csv'): df = pd.read_csv(file, sep=None, engine='python')
         else: df = pd.read_excel(file)
+        
+        # Asumimos Col 0: BARRIO, Col 1: TECNICO (Cualquier nombre de cabecera)
         col_barrio = df.columns[0]
         col_tec = df.columns[1]
+        
         for _, row in df.iterrows():
             b = limpiar_estricto(str(row[col_barrio]))
             t = str(row[col_tec]).upper().strip()
-            mapa[b] = t
+            # Eliminar "TECNICO" si viene vacio o NaN
+            if t and t != "NAN" and t != "":
+                mapa[b] = t
     except Exception as e:
-        st.error(f"Error en archivo maestro: {e}")
+        st.error(f"Error leyendo archivo maestro: {e}")
         return MAESTRA_DEFAULT
     return mapa
 
-VALOR_SUFIJOS = {'A': 0.1, 'B': 0.2, 'C': 0.3, 'D': 0.4, 'BIS': 0.05}
+# --- ALGORITMO ORDENAMIENTO ---
 def calcular_peso_js(txt):
     clean = limpiar_estricto(txt)
     penalidad = 5000 if "SUR" in clean else 0
@@ -169,40 +136,49 @@ def crear_pdf(df, tecnico, col_map):
         pdf.ln()
     return pdf.output(dest='S').encode('latin-1')
 
-# --- SESSION (Inicialización Segura) ---
+# --- SESSION STATE ---
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = MAESTRA_DEFAULT
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
-if 'log_cambios' not in st.session_state: st.session_state['log_cambios'] = None  # <--- CORRECCIÓN AQUÍ
+if 'log_cambios' not in st.session_state: st.session_state['log_cambios'] = None
 
-# ----------------------------------------------------
-# 👷 PANEL LATERAL DE GESTIÓN DE CUADRILLA
-# ----------------------------------------------------
-st.sidebar.header("👷 Gestión de Cuadrilla")
-st.sidebar.info("Activa o desactiva los técnicos. Si uno está inactivo, sus tareas se repartirán automáticamente.")
+# ------------------------------------------------------------------
+# 👷 PANEL LATERAL DINÁMICO
+# ------------------------------------------------------------------
+st.sidebar.header("👷 Cuadrilla Detectada")
 
-# Obtener lista de técnicos del mapa actual
-todos_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
+# Extraer técnicos únicos del mapa cargado
+lista_tecnicos_detectados = sorted(list(set(st.session_state['mapa_actual'].values())))
 TECNICOS_ACTIVOS = []
 
-# Crear Interruptores (Toggles)
-for tec in todos_tecnicos:
-    # Por defecto todos activos (True)
+# Botón para seleccionar todos
+if st.sidebar.checkbox("Seleccionar Todos", value=True):
+    pass # Solo visual, los toggles individuales mandan
+
+st.sidebar.markdown("---")
+# Generar Toggles con los nombres REALES
+for tec in lista_tecnicos_detectados:
     if st.sidebar.toggle(f"✅ {tec}", value=True):
         TECNICOS_ACTIVOS.append(tec)
 
-st.sidebar.divider()
-st.sidebar.write(f"**Activos:** {len(TECNICOS_ACTIVOS)} / {len(todos_tecnicos)}")
+st.sidebar.markdown("---")
+st.sidebar.caption(f"Operarios Activos: {len(TECNICOS_ACTIVOS)}")
 
 # --- UI TABS ---
-tab1, tab2, tab3 = st.tabs(["🚀 Operación Diaria", "📊 Resultados & Balance", "⚙️ Configuración Barrios"])
+tab1, tab2, tab3 = st.tabs(["🚀 Operación Diaria", "📊 Resultados & Log", "⚙️ Cargar Operarios/Barrios"])
 
-# --- TAB 3: BARRIOS ---
+# --- TAB 3: CARGA MAESTRA ---
 with tab3:
-    st.header("Base de Datos de Barrios")
-    maestro_file = st.file_uploader("Actualizar Maestro (Excel)", type=["xlsx", "csv"])
+    st.header("Actualizar Base de Operarios")
+    st.info("Sube aquí el archivo 'OPERARIOS_REINSTALACIONES.xlsx'. El sistema actualizará los nombres de la barra lateral automáticamente.")
+    maestro_file = st.file_uploader("Subir Maestro (Barrio | Técnico)", type=["xlsx", "csv"])
+    
     if maestro_file:
+        # Cargar y actualizar estado
         st.session_state['mapa_actual'] = cargar_cerebro_excel(maestro_file)
-        st.success(f"✅ ¡Cerebro actualizado con {len(st.session_state['mapa_actual'])} barrios!")
+        st.success(f"✅ ¡Actualizado! Se detectaron {len(set(st.session_state['mapa_actual'].values()))} técnicos nuevos. Revisa la barra lateral.")
+        
+        # Mostrar vista previa de los nuevos técnicos
+        st.write("Tecnicos Detectados:", sorted(list(set(st.session_state['mapa_actual'].values()))))
 
 # --- TAB 1: OPERACIÓN ---
 with tab1:
@@ -227,7 +203,7 @@ with tab1:
             c_dir = find(['DIRECCION', 'DIR'])
 
             if c_barrio and c_cta:
-                # 1. PRE-CÁLCULO
+                # ASIGNACIÓN PREVIA
                 df['TECNICO_IDEAL'] = df[c_barrio].apply(lambda x: buscar_tecnico_exacto(str(x), st.session_state['mapa_actual']))
                 
                 # RECOMENDADOR
@@ -236,27 +212,23 @@ with tab1:
                 recomendado = math.ceil(num_ordenes / num_activos) if num_activos > 0 else 35
                 
                 st.divider()
-                st.subheader("⚖️ Balanceo de Cargas")
-                TOPE = st.number_input(f"Tope Máximo (Sugerido: {recomendado})", value=recomendado)
+                st.subheader("⚖️ Configuración del Despacho")
+                TOPE = st.number_input(f"Tope Máximo de Órdenes (Sugerido: {recomendado})", value=recomendado)
                 
-                if num_activos < len(todos_tecnicos):
-                    st.warning(f"⚠️ Operando con personal reducido ({num_activos} técnicos). El sistema redistribuirá las cargas.")
-
-                # ALERTA DE SIN ASIGNAR
+                # ALERTA
                 sin_asignar = df[df['TECNICO_IDEAL'] == "SIN_ASIGNAR"]
                 if not sin_asignar.empty:
-                    st.markdown(f"""<div class="error-box">⚠️ ALERTA CRÍTICA: Hay {len(sin_asignar)} órdenes en barrios desconocidos.</div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div class="error-box">⚠️ ALERTA: {len(sin_asignar)} órdenes sin barrio conocido.</div>""", unsafe_allow_html=True)
                     st.dataframe(sin_asignar[[c_barrio, c_dir]].drop_duplicates(subset=[c_barrio]), use_container_width=True)
                 else:
-                    st.markdown("""<div class="success-box">✅ Base de datos 100% Cubierta</div>""", unsafe_allow_html=True)
+                    st.markdown("""<div class="success-box">✅ Cobertura Total de Barrios</div>""", unsafe_allow_html=True)
 
                 if pdf_in:
-                    if st.button("🚀 PROCESAR DESPACHO", type="primary"):
-                        with st.spinner("Ejecutando lógica de contingencia..."):
+                    if st.button("🚀 BALANCEAR Y GENERAR ZIP", type="primary"):
+                        with st.spinner("Distribuyendo cargas inteligentemente..."):
                             
-                            # LOGICA DE BALANCEO AVANZADA
                             df = df.sort_values(by=['TECNICO_IDEAL', c_barrio])
-                            conteo_real = {t: 0 for t in TECNICOS_ACTIVOS} # Solo contar activos
+                            conteo_real = {t: 0 for t in TECNICOS_ACTIVOS}
                             asignacion_final = []
                             log_cambios = []
                             
@@ -268,34 +240,39 @@ with tab1:
                                 if "SIN_ASIGNAR" in ideal:
                                     final = "SIN_ASIGNAR"
                                 else:
-                                    # 1. ¿El técnico ideal vino hoy?
-                                    if ideal in TECNICOS_ACTIVOS:
-                                        if conteo_real[ideal] < TOPE:
-                                            final = ideal
-                                            conteo_real[ideal] += 1
-                                        else:
-                                            # Desborde por Cupo
-                                            vecinos = VECINOS.get(ideal, [])
-                                            encontrado = False
-                                            for v in vecinos:
-                                                if v in TECNICOS_ACTIVOS and conteo_real[v] < TOPE:
-                                                    final = f"{v} (APOYO)"
-                                                    conteo_real[v] += 1
-                                                    encontrado = True
-                                                    log_cambios.append({"Barrio": bar, "Razón": "Cupo Lleno", "Original": ideal, "Nuevo": v})
-                                                    break
-                                            if not encontrado: final = f"{ideal} (EXTRA)"
+                                    # LOGICA DINÁMICA DE VECINDAD
+                                    # 1. Si el ideal está activo y tiene cupo -> Asignar
+                                    if ideal in TECNICOS_ACTIVOS and conteo_real[ideal] < TOPE:
+                                        final = ideal
+                                        conteo_real[ideal] += 1
                                     else:
-                                        # 2. El técnico NO vino hoy (Ausente) -> Buscar cobertura inmediata
-                                        vecinos = VECINOS.get(ideal, [])
+                                        # 2. Si no, buscar "Vecino" o "Menos Cargado"
+                                        # Intentar vecindad genérica si aplica
+                                        vecinos = VECINOS_GENERICOS.get(ideal, [])
                                         encontrado = False
+                                        
+                                        # A. Probar vecinos predefinidos activos
                                         for v in vecinos:
                                             if v in TECNICOS_ACTIVOS and conteo_real[v] < TOPE:
-                                                final = f"{v} (COBERTURA)"
+                                                final = f"{v} (APOYO)"
                                                 conteo_real[v] += 1
                                                 encontrado = True
-                                                log_cambios.append({"Barrio": bar, "Razón": "Técnico Ausente", "Original": ideal, "Nuevo": v})
+                                                log_cambios.append({"Barrio": bar, "Razón": "Vecindad", "Original": ideal, "Nuevo": v})
                                                 break
+                                        
+                                        # B. Si no hay vecino fijo o nombres son dinámicos (JORGE MENDOZA)
+                                        # Asignar al que tenga MENOS CARGA actual (Balanceo Universal)
+                                        if not encontrado:
+                                            # Buscar el activo con menor carga
+                                            candidatos = [t for t in TECNICOS_ACTIVOS if conteo_real[t] < TOPE]
+                                            if candidatos:
+                                                # Ordenar por carga ascendente
+                                                mejor_opcion = sorted(candidatos, key=lambda x: conteo_real[x])[0]
+                                                final = f"{mejor_opcion} (BALANCEO)"
+                                                conteo_real[mejor_opcion] += 1
+                                                encontrado = True
+                                                log_cambios.append({"Barrio": bar, "Razón": "Balanceo Carga", "Original": ideal, "Nuevo": mejor_opcion})
+                                            
                                         if not encontrado: final = "SIN_GESTOR_ACTIVO"
 
                                 asignacion_final.append(final)
@@ -305,7 +282,7 @@ with tab1:
                             
                             st.session_state['log_cambios'] = pd.DataFrame(log_cambios)
                             
-                            # PROCESAMIENTO PDF
+                            # PDF Processing
                             doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
                             mapa_p = {}
                             i = 0
@@ -324,12 +301,12 @@ with tab1:
                                     sub.close()
                                 i += 1
                             
-                            # GENERAR ZIP
+                            # ZIP Generation
                             zip_buffer = io.BytesIO()
                             with zipfile.ZipFile(zip_buffer, "w") as zf:
-                                # Backup Completo
-                                for pid_key, p_bytes in mapa_p.items():
-                                    zf.writestr(f"00_TODOS_LOS_PDFS/Poliza_{pid_key}.pdf", p_bytes)
+                                # Backup
+                                for pk, pb in mapa_p.items():
+                                    zf.writestr(f"00_TODOS_LOS_PDFS/Poliza_{pk}.pdf", pb)
                                 
                                 out_base = io.BytesIO()
                                 with pd.ExcelWriter(out_base, engine='xlsxwriter') as w: df.to_excel(w, index=False)
@@ -369,20 +346,18 @@ with tab1:
                             st.session_state['zip_listo'] = zip_buffer.getvalue()
                             st.success("✅ ¡Proceso Terminado!")
             else:
-                st.warning("⚠️ Sube el Excel para continuar.")
-
+                st.warning("⚠️ Sube el Excel de la ruta para continuar.")
         except Exception as e: st.error(f"Error: {e}")
 
-# --- TAB 2: RESULTADOS ---
+# --- TAB 2: LOG ---
 with tab2:
-    st.header("📊 Resultados del Día")
+    st.header("Historial de Movimientos")
     if st.session_state['log_cambios'] is not None and not st.session_state['log_cambios'].empty:
-        st.warning(f"Se realizaron {len(st.session_state['log_cambios'])} movimientos automáticos.")
         st.dataframe(st.session_state['log_cambios'], use_container_width=True)
     else:
-        st.info("Operación normal. No hubo desbordes ni ausencias.")
+        st.info("Sin movimientos.")
 
-# --- DESCARGA ---
+# --- DOWNLOAD ---
 if st.session_state['zip_listo']:
     st.sidebar.divider()
-    st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Jefe.zip", "application/zip", type="primary")
+    st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Dinamica.zip", "application/zip", type="primary")
