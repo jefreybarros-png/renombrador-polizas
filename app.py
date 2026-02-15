@@ -7,13 +7,12 @@ import zipfile
 import unicodedata
 from fpdf import FPDF
 from datetime import datetime
-import plotly.express as px
-import plotly.graph_objects as go
+import math
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Exacta V114", layout="wide")
+st.set_page_config(page_title="Logística Jefe V116", layout="wide")
 
-# ESTILOS MODO OSCURO (PROFESIONAL)
+# ESTILOS MODO OSCURO MEJORADO
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #FAFAFA; }
@@ -21,13 +20,14 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #262730; color: white; border-radius: 5px; border: 1px solid #41444C; }
     .stTabs [aria-selected="true"] { background-color: #004080; color: white; border: 2px solid #00A8E8; }
     div[data-testid="stDataFrame"] { background-color: #262730; border-radius: 10px; }
+    .error-box { background-color: #7d1b1b; padding: 15px; border-radius: 5px; color: #ffcccc; border: 1px solid #ff4b4b; margin-bottom: 15px;}
+    .success-box { background-color: #1b4d3e; padding: 10px; border-radius: 5px; color: #ccffdd; border: 1px solid #00cc66;}
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Asignación Exacta y Balanceo")
+st.title("🎯 Logística ITA: Panel de Control de Cuadrilla")
 
-# --- 1. CEREBRO MAESTRO (Basado en tu archivo 'tecnicos y barrios.xlsx') ---
-# Prioridad: EXACTITUD.
+# --- 1. CEREBRO MAESTRO ---
 MAESTRA_DEFAULT = {
     # TECNICO 1
     "BOYACA": "TECNICO 1", "REBOLO": "TECNICO 1", "SAN JOSE": "TECNICO 1", "SANTA MONICA": "TECNICO 1",
@@ -59,7 +59,7 @@ MAESTRA_DEFAULT = {
     "POR FIN": "TECNICO 5", "LA ESMERALDA": "TECNICO 5", "VILLA SAN PEDRO": "TECNICO 5", "LOS ANGELES": "TECNICO 5",
     "7 DE AGOSTO": "TECNICO 5", "EVARISTO SOURDIS": "TECNICO 5", "LIPAYA": "TECNICO 5",
 
-    # TECNICO 6 (Expansión y Suroccidente segun tu archivo)
+    # TECNICO 6
     "EL BOSQUE": "TECNICO 6", "CALIFORNIA": "TECNICO 6", "VILLAS DE LA CORDIALIDAD": "TECNICO 6", "METRO PARQUE": "TECNICO 6",
     "LA PAZ": "TECNICO 6", "LOS ROSALES": "TECNICO 6", "VILLA DEL ROSARIO": "TECNICO 6", "CARIBE VERDE": "TECNICO 6",
     "EL PUEBLO": "TECNICO 6", "EL ROMANCE": "TECNICO 6", "VILLA DE SAN PABLO": "TECNICO 6", "CIUDAD MODESTO": "TECNICO 6",
@@ -73,65 +73,48 @@ MAESTRA_DEFAULT = {
     "VILLA FLORENCIA": "TECNICO 8", "VILLA DEL ESTE": "TECNICO 8", "FLORENCIA": "TECNICO 8"
 }
 
-# --- 2. VECINDAD LÓGICA (Para Desbordes) ---
-# Si T1 se llena (Suroriente), ¿quién está cerca? -> T7 (Murillo) o T6 (Suroccidente)
+# --- 2. VECINDAD LÓGICA (PLAN DE CONTINGENCIA) ---
 VECINOS = {
     "TECNICO 1": ["TECNICO 7", "TECNICO 6", "TECNICO 4"],
     "TECNICO 2": ["TECNICO 4", "TECNICO 3", "TECNICO 8"],
     "TECNICO 3": ["TECNICO 2", "TECNICO 5", "TECNICO 4"],
     "TECNICO 4": ["TECNICO 2", "TECNICO 7", "TECNICO 1"],
     "TECNICO 5": ["TECNICO 6", "TECNICO 3", "TECNICO 5"],
-    "TECNICO 6": ["TECNICO 5", "TECNICO 1", "TECNICO 3"], # El Bosque apoya a Caribe Verde
+    "TECNICO 6": ["TECNICO 5", "TECNICO 1", "TECNICO 3"], 
     "TECNICO 7": ["TECNICO 1", "TECNICO 4", "TECNICO 6"],
     "TECNICO 8": ["TECNICO 2", "TECNICO 4", "TECNICO 1"]
 }
 
-# --- FUNCIONES DE LIMPIEZA AVANZADA ---
+# --- FUNCIONES ---
 def limpiar_estricto(txt):
-    """Limpieza para búsqueda exacta."""
     if not txt: return ""
     txt = str(txt).upper().strip()
     txt = "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
     return txt
 
 def limpiar_flexible(txt):
-    """Quita palabras comunes para intentar coincidencia si la exacta falla."""
     txt = limpiar_estricto(txt)
-    # Quitamos prefijos comunes en Barranquilla
     txt = re.sub(r'\b(BARRIO|URB|URBANIZACION|SECTOR|ETAPA|ZONA|BRR)\b', '', txt).strip()
     return txt
 
 def buscar_tecnico_exacto(barrio_input, mapa_barrios):
     if not barrio_input: return "SIN_ASIGNAR"
-    
-    # 1. Búsqueda Exacta (Prioridad Máxima)
     b_raw = limpiar_estricto(barrio_input)
     if b_raw in mapa_barrios: return mapa_barrios[b_raw]
-    
-    # 2. Búsqueda Flexible (Sin 'Urb', 'Sector')
     b_flex = limpiar_flexible(barrio_input)
     if b_flex in mapa_barrios: return mapa_barrios[b_flex]
-    
-    # 3. Búsqueda Contenida (Solo si es muy evidente)
-    # Ej: "EL SILENCIO SECTOR 2" contiene "EL SILENCIO"
     for k_maestro, tecnico in mapa_barrios.items():
-        if k_maestro == b_flex: return tecnico # Match inverso
-        # Cuidado con matches cortos. Solo si la clave maestra tiene longitud > 4
-        if len(k_maestro) > 4 and k_maestro in b_raw: 
-            return tecnico
-            
+        if k_maestro == b_flex: return tecnico
+        if len(k_maestro) > 4 and k_maestro in b_raw: return tecnico
     return "SIN_ASIGNAR"
 
 def cargar_cerebro_excel(file):
-    mapa = {} # Empezamos vacío para dar prioridad al Excel subido
+    mapa = {}
     try:
         if file.name.endswith('.csv'): df = pd.read_csv(file, sep=None, engine='python')
         else: df = pd.read_excel(file)
-        
-        # Detectar columnas
-        col_barrio = df.columns[0] # Asumimos 1ra columna
-        col_tec = df.columns[1]    # Asumimos 2da columna
-        
+        col_barrio = df.columns[0]
+        col_tec = df.columns[1]
         for _, row in df.iterrows():
             b = limpiar_estricto(str(row[col_barrio]))
             t = str(row[col_tec]).upper().strip()
@@ -141,26 +124,17 @@ def cargar_cerebro_excel(file):
         return MAESTRA_DEFAULT
     return mapa
 
-# --- ALGORITMO ORDENAMIENTO JS ADAPTADO ---
 VALOR_SUFIJOS = {'A': 0.1, 'B': 0.2, 'C': 0.3, 'D': 0.4, 'BIS': 0.05}
 def calcular_peso_js(txt):
     clean = limpiar_estricto(txt)
-    # Penalizar SUR
     penalidad = 5000 if "SUR" in clean else 0
-    # Extraer primer número
     nums = re.findall(r'(\d+)', clean)
     ref = int(nums[0]) if nums else 0
-    
-    # Logica ZigZag: Calles Bajan, Carreras Suben (Aprox)
-    if "CL" in clean or "CALLE" in clean:
-        peso = (110 - ref) * 1000
-    else:
-        peso = ref * 1000
-        
+    if "CL" in clean or "CALLE" in clean: peso = (110 - ref) * 1000
+    else: peso = ref * 1000
     secundario = int(nums[1]) if len(nums) > 1 else 0
     return peso + secundario + penalidad
 
-# --- PDF ---
 class PDFListado(FPDF):
     def header(self):
         self.set_fill_color(0, 51, 102) 
@@ -199,30 +173,42 @@ def crear_pdf(df, tecnico, col_map):
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = MAESTRA_DEFAULT
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
 
-# --- UI TABS ---
-tab1, tab2, tab3 = st.tabs(["🚀 Operación Diaria", "📊 Matriz de Balanceo", "⚙️ Configuración & Barrios"])
+# ----------------------------------------------------
+# 👷 PANEL LATERAL DE GESTIÓN DE CUADRILLA (NUEVO)
+# ----------------------------------------------------
+st.sidebar.header("👷 Gestión de Cuadrilla")
+st.sidebar.info("Activa o desactiva los técnicos. Si uno está inactivo, sus tareas se repartirán automáticamente.")
 
-# --- TAB 3: CONFIG ---
+# Obtener lista de técnicos del mapa actual
+todos_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
+TECNICOS_ACTIVOS = []
+
+# Crear Interruptores (Toggles)
+for tec in todos_tecnicos:
+    # Por defecto todos activos (True)
+    if st.sidebar.toggle(f"✅ {tec}", value=True):
+        TECNICOS_ACTIVOS.append(tec)
+
+st.sidebar.divider()
+st.sidebar.write(f"**Activos:** {len(TECNICOS_ACTIVOS)} / {len(todos_tecnicos)}")
+
+# --- UI TABS ---
+tab1, tab2, tab3 = st.tabs(["🚀 Operación Diaria", "📊 Resultados & Balance", "⚙️ Configuración Barrios"])
+
+# --- TAB 3: BARRIOS ---
 with tab3:
     st.header("Base de Datos de Barrios")
-    st.info("Para máxima exactitud, sube tu archivo 'tecnicos y barrios.xlsx' aquí siempre.")
     maestro_file = st.file_uploader("Actualizar Maestro (Excel)", type=["xlsx", "csv"])
     if maestro_file:
         st.session_state['mapa_actual'] = cargar_cerebro_excel(maestro_file)
-        st.success(f"✅ ¡Cerebro actualizado con {len(st.session_state['mapa_actual'])} barrios exactos!")
-    
-    with st.expander("Ver lista de barrios cargada actualmente"):
-        df_m = pd.DataFrame(list(st.session_state['mapa_actual'].items()), columns=['Barrio', 'Técnico'])
-        st.dataframe(df_m, use_container_width=True)
+        st.success(f"✅ ¡Cerebro actualizado con {len(st.session_state['mapa_actual'])} barrios!")
 
 # --- TAB 1: OPERACIÓN ---
 with tab1:
-    c1, c2 = st.columns(2)
-    with c1: pdf_in = st.file_uploader("1. PDF Pólizas", type="pdf")
-    with c2: 
-        excel_in = st.file_uploader("2. Base Diaria", type=["xlsx", "csv"])
-        TOPE = st.number_input("Tope Máximo por Técnico", value=35)
-
+    col_in1, col_in2 = st.columns(2)
+    with col_in1: pdf_in = st.file_uploader("1. PDF Pólizas", type="pdf")
+    with col_in2: excel_in = st.file_uploader("2. Base Diaria", type=["xlsx", "csv"])
+    
     if excel_in:
         try:
             if excel_in.name.endswith('.csv'): df = pd.read_csv(excel_in, sep=None, engine='python', encoding='utf-8-sig')
@@ -240,37 +226,38 @@ with tab1:
             c_dir = find(['DIRECCION', 'DIR'])
 
             if c_barrio and c_cta:
-                # 1. ASIGNACIÓN INICIAL (IDEAL)
+                # 1. PRE-CÁLCULO
                 df['TECNICO_IDEAL'] = df[c_barrio].apply(lambda x: buscar_tecnico_exacto(str(x), st.session_state['mapa_actual']))
                 
-                # Resumen Inicial
+                # RECOMENDADOR
+                num_ordenes = len(df)
+                num_activos = len(TECNICOS_ACTIVOS)
+                recomendado = math.ceil(num_ordenes / num_activos) if num_activos > 0 else 35
+                
                 st.divider()
-                st.subheader("1️⃣ Pre-Asignación (Sin Balanceo)")
-                col_m1, col_m2 = st.columns([1, 2])
-                with col_m1:
-                    conteo_init = df['TECNICO_IDEAL'].value_counts().reset_index()
-                    conteo_init.columns = ['Técnico', 'Carga Inicial']
-                    st.dataframe(conteo_init, use_container_width=True, height=250)
-                with col_m2:
-                    # Alerta de Sin Asignar
-                    sin_asig = df[df['TECNICO_IDEAL'] == "SIN_ASIGNAR"]
-                    if not sin_asig.empty:
-                        st.error(f"⚠️ ATENCIÓN: Hay {len(sin_asig)} órdenes con barrios desconocidos.")
-                        st.dataframe(sin_asig[[c_barrio, c_dir]].drop_duplicates(subset=[c_barrio]), height=200)
-                    else:
-                        st.success("✅ Todos los barrios reconocidos correctamente.")
+                st.subheader("⚖️ Balanceo de Cargas")
+                TOPE = st.number_input(f"Tope Máximo (Sugerido: {recomendado})", value=recomendado)
+                
+                if num_activos < len(todos_tecnicos):
+                    st.warning(f"⚠️ Operando con personal reducido ({num_activos} técnicos). El sistema redistribuirá las cargas.")
 
-                # BOTÓN PROCESAR
+                # ALERTA DE SIN ASIGNAR
+                sin_asignar = df[df['TECNICO_IDEAL'] == "SIN_ASIGNAR"]
+                if not sin_asignar.empty:
+                    st.markdown(f"""<div class="error-box">⚠️ ALERTA CRÍTICA: Hay {len(sin_asignar)} órdenes en barrios desconocidos.</div>""", unsafe_allow_html=True)
+                    st.dataframe(sin_asignar[[c_barrio, c_dir]].drop_duplicates(subset=[c_barrio]), use_container_width=True)
+                else:
+                    st.markdown("""<div class="success-box">✅ Base de datos 100% Cubierta</div>""", unsafe_allow_html=True)
+
                 if pdf_in:
-                    if st.button("🚀 BALANCEAR CARGAS Y GENERAR ZIP", type="primary"):
-                        with st.spinner("Aplicando lógica de desbordes..."):
-                            # 2. ALGORITMO DE BALANCEO
-                            # Ordenamos para llenar primero los barrios más "importantes" o alfabéticamente
-                            df = df.sort_values(by=['TECNICO_IDEAL', c_barrio])
+                    if st.button("🚀 PROCESAR DESPACHO", type="primary"):
+                        with st.spinner("Ejecutando lógica de contingencia..."):
                             
-                            conteo_real = {}
+                            # LOGICA DE BALANCEO AVANZADA
+                            df = df.sort_values(by=['TECNICO_IDEAL', c_barrio])
+                            conteo_real = {t: 0 for t in TECNICOS_ACTIVOS} # Solo contar activos
                             asignacion_final = []
-                            log_cambios = [] # Para el reporte
+                            log_cambios = []
                             
                             for _, row in df.iterrows():
                                 ideal = row['TECNICO_IDEAL']
@@ -280,37 +267,44 @@ with tab1:
                                 if "SIN_ASIGNAR" in ideal:
                                     final = "SIN_ASIGNAR"
                                 else:
-                                    if ideal not in conteo_real: conteo_real[ideal] = 0
-                                    
-                                    if conteo_real[ideal] < TOPE:
-                                        final = ideal
-                                        conteo_real[ideal] += 1
+                                    # 1. ¿El técnico ideal vino hoy?
+                                    if ideal in TECNICOS_ACTIVOS:
+                                        if conteo_real[ideal] < TOPE:
+                                            final = ideal
+                                            conteo_real[ideal] += 1
+                                        else:
+                                            # Desborde por Cupo
+                                            vecinos = VECINOS.get(ideal, [])
+                                            encontrado = False
+                                            for v in vecinos:
+                                                if v in TECNICOS_ACTIVOS and conteo_real[v] < TOPE:
+                                                    final = f"{v} (APOYO)"
+                                                    conteo_real[v] += 1
+                                                    encontrado = True
+                                                    log_cambios.append({"Barrio": bar, "Razón": "Cupo Lleno", "Original": ideal, "Nuevo": v})
+                                                    break
+                                            if not encontrado: final = f"{ideal} (EXTRA)"
                                     else:
-                                        # DESBORDE
+                                        # 2. El técnico NO vino hoy (Ausente) -> Buscar cobertura inmediata
                                         vecinos = VECINOS.get(ideal, [])
                                         encontrado = False
                                         for v in vecinos:
-                                            if v not in conteo_real: conteo_real[v] = 0
-                                            if conteo_real[v] < TOPE:
-                                                final = f"{v} (APOYO)"
+                                            if v in TECNICOS_ACTIVOS and conteo_real[v] < TOPE:
+                                                final = f"{v} (COBERTURA)"
                                                 conteo_real[v] += 1
                                                 encontrado = True
-                                                log_cambios.append({"Cuenta": row[c_cta], "Barrio": bar, "Original": ideal, "Nuevo": v})
+                                                log_cambios.append({"Barrio": bar, "Razón": "Técnico Ausente", "Original": ideal, "Nuevo": v})
                                                 break
-                                        if not encontrado:
-                                            final = f"{ideal} (EXTRA)" # Nadie tiene cupo, se sobrecarga
-                                
+                                        if not encontrado: final = "SIN_GESTOR_ACTIVO"
+
                                 asignacion_final.append(final)
                             
                             df['TECNICO_REAL'] = asignacion_final
                             df['CARPETA'] = df['TECNICO_REAL'].apply(lambda x: x.split(" (")[0])
                             
-                            # Guardar Log de cambios para mostrar en Tab 2
                             st.session_state['log_cambios'] = pd.DataFrame(log_cambios)
-                            st.session_state['conteo_final'] = pd.DataFrame(list(conteo_real.items()), columns=['Técnico', 'Carga Final'])
-
-                            # 3. GENERAR ZIP
-                            # (Lógica estándar de ZIP)
+                            
+                            # PROCESAMIENTO PDF
                             doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
                             mapa_p = {}
                             i = 0
@@ -329,11 +323,16 @@ with tab1:
                                     sub.close()
                                 i += 1
                             
+                            # GENERAR ZIP
                             zip_buffer = io.BytesIO()
                             with zipfile.ZipFile(zip_buffer, "w") as zf:
+                                # Backup Completo
+                                for pid_key, p_bytes in mapa_p.items():
+                                    zf.writestr(f"00_TODOS_LOS_PDFS/Poliza_{pid_key}.pdf", p_bytes)
+                                
                                 out_base = io.BytesIO()
                                 with pd.ExcelWriter(out_base, engine='xlsxwriter') as w: df.to_excel(w, index=False)
-                                zf.writestr("0_CONSOLIDADO.xlsx", out_base.getvalue())
+                                zf.writestr("01_CONSOLIDADO_GENERAL.xlsx", out_base.getvalue())
                                 
                                 c_map = {'CUENTA': c_cta, 'MEDIDOR': find(['MEDIDOR']), 'BARRIO': c_barrio, 'DIRECCION': c_dir, 'CLIENTE': find(['CLIENTE'])}
                                 
@@ -368,35 +367,21 @@ with tab1:
 
                             st.session_state['zip_listo'] = zip_buffer.getvalue()
                             st.success("✅ ¡Proceso Terminado!")
+            else:
+                st.warning("⚠️ Sube el Excel para continuar.")
 
-            else: st.warning("Sube los archivos para comenzar.")
         except Exception as e: st.error(f"Error: {e}")
 
-# --- TAB 2: MATRIZ DE BALANCEO ---
+# --- TAB 2: RESULTADOS ---
 with tab2:
-    st.header("📊 Resultado del Balanceo de Cargas")
-    if st.session_state['zip_listo']:
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("Carga Final por Técnico")
-            # Gráfico de barras simple
-            if 'conteo_final' in st.session_state:
-                fig = px.bar(st.session_state['conteo_final'], x='Técnico', y='Carga Final', text='Carga Final', color='Carga Final')
-                # Línea de tope
-                fig.add_hline(y=TOPE, line_dash="dash", line_color="red", annotation_text="Tope Máximo")
-                st.plotly_chart(fig, use_container_width=True)
-        
-        with c2:
-            st.subheader("📋 Log de Reasignaciones (Desbordes)")
-            if 'log_cambios' in st.session_state and not st.session_state['log_cambios'].empty:
-                st.dataframe(st.session_state['log_cambios'], use_container_width=True)
-                st.caption("Estos son los barrios que se movieron porque el técnico titular estaba lleno.")
-            else:
-                st.success("No hubo desbordes. Todos los técnicos estaban dentro del cupo.")
+    st.header("📊 Resultados del Día")
+    if st.session_state['log_cambios'] is not None and not st.session_state['log_cambios'].empty:
+        st.warning(f"Se realizaron {len(st.session_state['log_cambios'])} movimientos automáticos.")
+        st.dataframe(st.session_state['log_cambios'], use_container_width=True)
     else:
-        st.info("Procesa el archivo en la Pestaña 1 para ver los resultados aquí.")
+        st.info("Operación normal. No hubo desbordes ni ausencias.")
 
 # --- DESCARGA ---
 if st.session_state['zip_listo']:
     st.sidebar.divider()
-    st.sidebar.download_button("⬇️ BAJAR ZIP FINAL", st.session_state['zip_listo'], "Logistica_Exacta.zip", "application/zip", type="primary")
+    st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Jefe.zip", "application/zip", type="primary")
