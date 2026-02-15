@@ -1,17 +1,17 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 9.0 "FORTRESS"                       #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 10.0 "DYNAMO BLINDADA"               #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: FEBRERO 2026                                                                 #
 #                                                                                       #
-#   ---------------------------------------------------------------------------------   #
-#   RESUMEN DE SEGURIDAD Y FUNCIONALIDAD:                                               #
-#   1.  AUTENTICACIÓN DE SESIÓN REAL: El panel lateral de "Asistencia" está oculto      #
-#       hasta que la contraseña (ita2026) sea validada correctamente.                   #
-#   2.  CORE LOGÍSTICO COMPLETO: Carga, Balanceo, Ajuste Manual y Publicación.          #
-#   3.  GENERACIÓN DOCUMENTAL ROBUSTA: ZIP con estructura de carpetas y PDF.            #
-#   4.  INTERFAZ DE USUARIO: Diseño "Diamond" mantenido y mejorado.                     #
-#   5.  SIN RECORTES: Lógica expandida para máxima trazabilidad de errores.             #
+#   MEJORAS CRÍTICAS DE ESTA VERSIÓN:                                                   #
+#   1.  REFRESCO AUTOMÁTICO: Al cargar un nuevo maestro, el sistema se reinicia solo    #
+#       para actualizar inmediatamente las listas de técnicos en todos los menús.       #
+#   2.  MAPEO INTELIGENTE DE COLUMNAS: Detecta "BARRIO", "TECNICO" y "CELULAR" sin      #
+#       importar el orden en el archivo Excel/CSV.                                      #
+#   3.  GESTIÓN DE MEMORIA: Limpia variables antiguas para evitar mezclar bases de      #
+#       datos viejas con nuevas.                                                        #
+#   4.  MÓDULOS INTACTOS: Balanceo, Ajuste Manual, ZIP Completo, Portal Web.            #
 #                                                                                       #
 #########################################################################################
 
@@ -35,21 +35,21 @@ import base64
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="Logística ITA | Fortress v9.0",
+    page_title="Logística ITA | v10.0 Dynamo",
     layout="wide",
-    page_icon="🛡️",
+    page_icon="🚚",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
-        'About': "Sistema Logístico ITA - Versión 9.0 Segura"
+        'About': "Sistema Logístico ITA - Versión 10.0 Dinámica"
     }
 )
 
 # Inicialización de Variables de Sesión (Estado Global)
-# Esto es vital para recordar si el usuario ya puso la contraseña correcta.
 if 'admin_logged_in' not in st.session_state: st.session_state['admin_logged_in'] = False
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = {}
+if 'mapa_telefonos' not in st.session_state: st.session_state['mapa_telefonos'] = {} # Nuevo: Teléfonos
 if 'df_simulado' not in st.session_state: st.session_state['df_simulado'] = None
 if 'col_map_final' not in st.session_state: st.session_state['col_map_final'] = None
 if 'mapa_polizas_cargado' not in st.session_state: st.session_state['mapa_polizas_cargado'] = {}
@@ -63,18 +63,18 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
     
     .stApp { 
-        background-color: #0B1120; /* Dark Slate */
+        background-color: #0F172A; /* Azul Oscuro Profundo (Slate 900) */
         color: #F8FAFC; 
         font-family: 'Roboto', sans-serif;
     }
     
     /* SIDEBAR BLINDADA */
     section[data-testid="stSidebar"] {
-        background-color: #111827; 
-        border-right: 1px solid #1E293B;
+        background-color: #1E293B; 
+        border-right: 1px solid #334155;
     }
     
-    /* CONTENEDOR DE LOGO */
+    /* LOGO CONTAINER */
     .logo-container {
         display: flex;
         flex-direction: column;
@@ -89,7 +89,7 @@ st.markdown("""
     }
     
     .logo-img {
-        width: 90px;
+        width: 100px;
         height: auto;
         filter: drop-shadow(0 0 15px rgba(56, 189, 248, 0.6));
         transition: transform 0.3s ease;
@@ -133,9 +133,9 @@ st.markdown("""
     
     /* INPUTS Y SELECTBOXES */
     div[data-baseweb="select"] > div {
-        background-color: #1F2937;
+        background-color: #334155;
         color: white;
-        border-color: #374151;
+        border-color: #475569;
         border-radius: 8px;
     }
     
@@ -184,6 +184,7 @@ st.markdown("""
         border: 1px solid #7f1d1d;
         text-align: center;
         font-weight: bold;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     
     .unlocked-msg {
@@ -194,6 +195,18 @@ st.markdown("""
         border: 1px solid #065f46;
         text-align: center;
         margin-top: 10px;
+    }
+    
+    .tech-header {
+        font-size: 32px; 
+        font-weight: 800; 
+        background: -webkit-linear-gradient(0deg, #38BDF8, #818CF8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #38BDF8;
+        padding-bottom: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -301,35 +314,47 @@ def buscar_tecnico_exacto(barrio_input, mapa_barrios):
 
 def cargar_maestro_dinamico(file):
     """
-    Carga el archivo maestro de operarios.
-    Detecta automáticamente las columnas de Barrio y Técnico.
+    Carga INTELIGENTE del archivo maestro.
+    Busca columnas por nombre ('BARRIO', 'TECNICO', 'CELULAR') en lugar de posición fija.
+    Esto permite que el usuario cambie el orden de columnas sin romper el sistema.
     """
     mapa = {}
+    telefonos = {}
     try:
         if file.name.endswith('.csv'): 
             df = pd.read_csv(file, sep=None, engine='python')
         else: 
             df = pd.read_excel(file)
             
+        # Normalizar cabeceras a mayúsculas y sin espacios
         df.columns = [str(c).upper().strip() for c in df.columns]
         
-        if len(df.columns) < 2: return {}
-            
-        c_barrio = df.columns[0]
-        c_tecnico = df.columns[1]
+        # BÚSQUEDA INTELIGENTE DE COLUMNAS
+        col_barrio = next((c for c in df.columns if 'BARRIO' in c or 'SECTOR' in c), None)
+        col_tecnico = next((c for c in df.columns if 'TECNICO' in c or 'OPERARIO' in c or 'NOMBRE' in c), None)
+        col_celular = next((c for c in df.columns if 'CEL' in c or 'TEL' in c or 'MOVIL' in c), None)
+
+        # Validación Crítica
+        if not col_barrio or not col_tecnico:
+            st.error("❌ El archivo debe tener columnas con nombres similares a 'BARRIO' y 'TECNICO'.")
+            return {}, {}
 
         for _, row in df.iterrows():
-            b = limpiar_estricto(str(row[c_barrio]))
-            t = str(row[c_tecnico]).upper().strip()
+            b = limpiar_estricto(str(row[col_barrio]))
+            t = str(row[col_tecnico]).upper().strip()
             
             if t and t != "NAN" and b: 
                 mapa[b] = t
+                # Guardar teléfono si existe columna y dato
+                if col_celular and pd.notna(row[col_celular]):
+                    tel = normalizar_numero(row[col_celular])
+                    if tel: telefonos[t] = tel
                 
     except Exception as e:
         st.error(f"Error leyendo maestro: {str(e)}")
-        return {}
+        return {}, {}
         
-    return mapa
+    return mapa, telefonos
 
 def procesar_pdf_polizas_avanzado(file_obj):
     """
@@ -449,7 +474,7 @@ with st.sidebar:
     
     # 2. SELECTOR DE ROL DE ACCESO
     modo_acceso = st.selectbox(
-        "SELECCIONA TU PERFIL", 
+        "PERFIL DE ACCESO", 
         ["👷 TÉCNICO", "⚙️ ADMINISTRADOR"],
         index=0 # Por defecto Técnico
     )
@@ -473,11 +498,12 @@ with st.sidebar:
                 todos_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
                 
                 # Widget de Asistencia
+                # Usamos una key única para que no se resetee sola a menos que lo forcemos
                 seleccion_activos = st.multiselect(
                     "Técnicos Habilitados:",
                     options=todos_tecnicos,
                     default=todos_tecnicos,
-                    key="asistencia_sidebar"
+                    key="widget_asistencia_dinamico"
                 )
                 
                 # Persistencia
@@ -488,9 +514,9 @@ with st.sidebar:
                 if inactivos > 0:
                     st.error(f"🔴 {inactivos} Técnicos INACTIVOS")
                 else:
-                    st.success("🟢 Asistencia Completa")
+                    st.success("🟢 Cuadrilla Completa")
             else:
-                st.caption("ℹ️ Carga el Maestro en Pestaña 1 para ver la lista aquí.")
+                st.caption("ℹ️ Carga el Maestro en Pestaña 1 para habilitar este panel.")
         else:
             # Mensaje cuando no ha iniciado sesión
             st.markdown("""
@@ -501,21 +527,17 @@ with st.sidebar:
             """, unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión v9.0")
+        st.info("Bienvenido al Portal de Autogestión v10.0")
 
     st.markdown("---")
-    st.caption("Sistema Logístico Seguro v9.0")
+    st.caption("Sistema Logístico Seguro v10.0")
 
 # =======================================================================================
 # SECCIÓN 6: VISTA DEL TÉCNICO (PORTAL DE DESCARGAS)
 # =======================================================================================
 
 if modo_acceso == "👷 TÉCNICO":
-    st.markdown("""
-        <h1 style='text-align: center; color: #34D399; margin-bottom: 0;'>🚛 ZONA DE DESCARGAS</h1>
-        <p style='text-align: center; color: #94A3B8; margin-top: 5px;'>Portal de Autogestión de Documentos Operativos</p>
-        <hr style='border-color: #334155;'>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="tech-header">ZONA DE DESCARGAS</div>', unsafe_allow_html=True)
     
     # Verificar archivos publicados
     tecnicos_list = []
@@ -538,7 +560,7 @@ if modo_acceso == "👷 TÉCNICO":
             f_ruta = os.path.join(path_tec, "1_HOJA_DE_RUTA.pdf")
             f_leg = os.path.join(path_tec, "3_PAQUETE_LEGALIZACION.pdf")
             
-            st.markdown(f"<h3 style='text-align:center; color:white; margin-top:20px;'>Documentos para: <span style='color:#38BDF8'>{seleccion}</span></h3>", unsafe_allow_html=True)
+            st.markdown(f"<h3 style='text-align:center; color:white; margin-top:20px;'>Hola, <span style='color:#38BDF8'>{seleccion}</span></h3>", unsafe_allow_html=True)
             st.write("")
             
             c_izq, c_der = st.columns(2)
@@ -614,7 +636,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             "4. 🌍 Publicación Final"
         ])
         
-        # --- TAB 1: CARGA DE MAESTRO ---
+        # --- TAB 1: CARGA DE MAESTRO (ACTUALIZADO CON REINICIO) ---
         with tab1:
             st.markdown("### Configuración de Zonas y Técnicos")
             st.info("Carga aquí el archivo que relaciona cada Barrio con su Técnico responsable.")
@@ -622,19 +644,34 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             f_maestro = st.file_uploader("Subir Maestro (Excel/CSV)", type=["xlsx", "csv"])
             
             if f_maestro:
-                with st.spinner("Indexando base de datos..."):
-                    st.session_state['mapa_actual'] = cargar_maestro_dinamico(f_maestro)
-                
-                if st.session_state['mapa_actual']:
-                    st.success(f"✅ Maestro cargado con éxito: {len(st.session_state['mapa_actual'])} barrios indexados.")
-                    st.markdown("""
-                        <div class='unlocked-msg'>
-                            🔓 <b>MENÚ DE ASISTENCIA DESBLOQUEADO</b><br>
-                            Revisa la barra lateral izquierda para inactivar técnicos.
-                        </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.error("❌ Error en el archivo: Verifica columnas 'Barrio' y 'Tecnico'.")
+                with st.spinner("Indexando base de datos y limpiando memoria anterior..."):
+                    # 1. Cargar nuevo mapa
+                    nuevo_mapa, nuevos_telefonos = cargar_maestro_dinamico(f_maestro)
+                    
+                    if nuevo_mapa:
+                        st.session_state['mapa_actual'] = nuevo_mapa
+                        st.session_state['mapa_telefonos'] = nuevos_telefonos
+                        
+                        # 2. LIMPIEZA PROFUNDA (Esto garantiza el dinamismo)
+                        st.session_state['df_simulado'] = None # Borrar rutas viejas
+                        st.session_state['tecnicos_activos_manual'] = [] # Resetear asistencia
+                        
+                        st.success(f"✅ Maestro cargado con éxito: {len(nuevo_mapa)} barrios detectados.")
+                        st.markdown("""
+                            <div class='unlocked-msg'>
+                                🔄 <b>SISTEMA ACTUALIZADO</b><br>
+                                Recargando interfaz para aplicar los nuevos nombres...
+                            </div>
+                        """, unsafe_allow_html=True)
+                        time.sleep(1.5)
+                        st.rerun() # RECARGA TOTAL DE LA PÁGINA
+                    else:
+                        st.error("❌ Error en el archivo: No se encontraron columnas válidas.")
+            
+            # Visor de estado actual
+            if st.session_state['mapa_actual']:
+                st.write(f"**Total Barrios:** {len(st.session_state['mapa_actual'])}")
+                st.write(f"**Total Técnicos:** {len(set(st.session_state['mapa_actual'].values()))}")
 
         # --- TAB 2: PROCESO DIARIO ---
         with tab2:
@@ -700,6 +737,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     df_proc['TECNICO_IDEAL'] = df_proc[sb].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
                     
                     # 2. Manejo de Inactivos
+                    # Si el tecnico ideal NO esta en la lista de 'tecnicos_hoy', se marca como VACANTE
                     df_proc['TECNICO_FINAL'] = df_proc['TECNICO_IDEAL'].apply(lambda x: x if x in tecnicos_hoy else "VACANTE")
                     df_proc['ORIGEN_REAL'] = None
                     
@@ -711,7 +749,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     df_proc['S'] = df_proc[sd].astype(str).apply(natural_sort_key)
                     df_proc = df_proc.sort_values(by=[sb, 'S'])
                     
-                    # 4. Repartir Vacantes
+                    # 4. Repartir Vacantes (A quien menos tiene)
                     vacs = df_proc[df_proc['TECNICO_FINAL'] == "VACANTE"]
                     for idx_v, _ in vacs.iterrows():
                         cnt_live = df_proc[df_proc['TECNICO_FINAL'].isin(tecnicos_hoy)]['TECNICO_FINAL'].value_counts()
@@ -776,7 +814,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     with cls[i%2]:
                         s = df[df['TECNICO_FINAL']==t]
                         r = s.groupby([cbar, 'ORIGEN_REAL'], dropna=False).size().reset_index(name='N')
-                        r['B'] = r.apply(lambda x: f"⚠️ {x[cbar]}" if pd.notna(x['ORIGEN_REAL']) else x[cbar], axis=1)
+                        r['B'] = r.apply(lambda x: f"⚠️ {x[cbar]} (APOYO)" if pd.notna(x['ORIGEN_REAL']) else x[cbar], axis=1)
                         with st.expander(f"👷 {t} ({len(s)})"): st.dataframe(r[['B','N']], hide_index=True, use_container_width=True)
             else: st.info("Sin datos.")
 
@@ -841,23 +879,20 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             dt['S'] = dt[cmf['DIRECCION']].astype(str).apply(natural_sort_key)
                             dt = dt.sort_values(by=[cmf['BARRIO'], 'S']).drop(columns=['S'])
                             
-                            # 1. Hoja
                             z.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", crear_pdf_lista_final(dt, t, cmf))
                             
-                            # 2. Tabla
                             ot = io.BytesIO()
                             with pd.ExcelWriter(ot, engine='xlsxwriter') as w: dt.to_excel(w, index=False)
                             z.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", ot.getvalue())
                             
-                            # 3 y 4. Polizas
                             if pls:
                                 mg = fitz.open(); n=0
                                 for _,r in dt.iterrows():
                                     c = normalizar_numero(str(r[cmf['CUENTA']]))
                                     if c in pls:
-                                        # Carpeta 4: Individuales
+                                        # CARPETA 4 (Individual)
                                         z.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{c}.pdf", pls[c])
-                                        # Carpeta 3: Merge
+                                        # CARPETA 3 (Merge)
                                         with fitz.open(stream=pls[c], filetype="pdf") as x: mg.insert_pdf(x)
                                         n+=1
                                 if n>0: z.writestr(f"{safe}/3_PAQUETE_LEGALIZACION.pdf", mg.tobytes())
