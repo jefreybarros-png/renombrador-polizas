@@ -10,7 +10,7 @@ from datetime import datetime
 import math
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Jefe V116", layout="wide")
+st.set_page_config(page_title="Logística Jefe V117", layout="wide")
 
 # ESTILOS MODO OSCURO MEJORADO
 st.markdown("""
@@ -169,12 +169,13 @@ def crear_pdf(df, tecnico, col_map):
         pdf.ln()
     return pdf.output(dest='S').encode('latin-1')
 
-# --- SESSION ---
+# --- SESSION (Inicialización Segura) ---
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = MAESTRA_DEFAULT
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
+if 'log_cambios' not in st.session_state: st.session_state['log_cambios'] = None  # <--- CORRECCIÓN AQUÍ
 
 # ----------------------------------------------------
-# 👷 PANEL LATERAL DE GESTIÓN DE CUADRILLA (NUEVO)
+# 👷 PANEL LATERAL DE GESTIÓN DE CUADRILLA
 # ----------------------------------------------------
 st.sidebar.header("👷 Gestión de Cuadrilla")
 st.sidebar.info("Activa o desactiva los técnicos. Si uno está inactivo, sus tareas se repartirán automáticamente.")
