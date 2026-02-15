@@ -7,6 +7,7 @@ import zipfile
 import unicodedata
 from fpdf import FPDF
 from datetime import datetime
+import urllib.parse
 import requests
 import base64
 import time
@@ -24,7 +25,8 @@ st.markdown("""
 
 # --- CONFIGURACIÓN DEL BOT ---
 st.sidebar.header("🤖 Configuración del Bot Web")
-URL_BOT_WEB = st.sidebar.text_input("URL de tu Replit:", placeholder="https://tu-proyecto.replit.app")
+# Aquí pegas el link que me pasaste
+URL_BOT_WEB = st.sidebar.text_input("URL de tu Replit:", value="https://evolution-api--jefreybarros.replit.app")
 LLAVE_ADMIN = st.sidebar.text_input("Contraseña:", value="itasecreto", type="password")
 INSTANCIA = "ita_principal"
 
@@ -49,29 +51,17 @@ def enviar_pdf_web(numero, pdf_bytes, nombre_archivo, mensaje):
         return res.status_code in [200, 201]
     except: return False
 
-# --- LÓGICA DE ORDENAMIENTO (FIX: UNHASHABLE LIST) ---
+# --- LÓGICA DE ORDENAMIENTO (CORRECCIÓN DEL ERROR 'LIST') ---
 def natural_sort_key(txt):
     if not txt: return tuple()
     txt = str(txt).upper()
-    # USAMOS TUPLA () EN VEZ DE LISTA [] PARA EVITAR EL ERROR DE LA FRANJA ROJA
+    # CAMBIO CLAVE: tuple() en lugar de [] evita el error "unhashable type: list"
     return tuple(int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt))
 
 def normalizar_numero(txt):
     nums = re.sub(r'\D', '', str(txt))
     if not nums.startswith('57') and len(nums) == 10: nums = '57' + nums
     return nums
-
-def cargar_maestro_dinamico(file):
-    mapa = {}
-    try:
-        df = pd.read_excel(file) if file.name.endswith('.xlsx') else pd.read_csv(file, sep=None, engine='python')
-        for _, row in df.iterrows():
-            b = str(row.iloc[0]).upper().strip()
-            t = str(row.iloc[1]).upper().strip()
-            c = normalizar_numero(str(row.iloc[2])) if len(row) > 2 else ""
-            mapa[b] = {'nombre': t, 'celular': c}
-    except: pass
-    return mapa
 
 # --- GENERADOR DE PLANILLA PDF ---
 class PDFListado(FPDF):
@@ -108,17 +98,23 @@ t_op, t_bot, t_cfg = st.tabs(["🚀 Procesar y Enviar", "🤖 Vincular WhatsApp"
 with t_cfg:
     f_maestro = st.file_uploader("Subir Maestro (Barrio, Tecnico, Celular)")
     if f_maestro:
-        st.session_state['mapa_actual'] = cargar_maestro_dinamico(f_maestro)
+        # Aquí cargamos el archivo de barrios para Barranquilla
+        st.session_state['mapa_actual'] = {} 
+        df_m = pd.read_excel(f_maestro)
+        for _, r in df_m.iterrows():
+            st.session_state['mapa_actual'][str(r.iloc[0]).upper().strip()] = {
+                'nombre': str(r.iloc[1]).upper(), 
+                'celular': normalizar_numero(str(r.iloc[2]))
+            }
         st.success("✅ Maestro cargado.")
 
 with t_bot:
-    if not URL_BOT_WEB: st.warning("Ingresa el link de Replit en la barra lateral.")
-    elif st.button("🔄 Generar Código QR"):
+    if st.button("🔄 Generar Código QR"):
         res = obtener_qr_web()
         if res and "base64" in str(res):
             img_data = res['base64'].split(',')[1]
             st.image(base64.b64decode(img_data), width=350)
-        else: st.error("❌ Sin conexión al servidor bot.")
+        else: st.error("❌ Sin conexión al servidor bot. Espera que Replit termine de cargar.")
 
 with t_op:
     c1, c2 = st.columns(2)
@@ -128,34 +124,30 @@ with t_op:
     if f_excel and st.session_state['mapa_actual']:
         df_raw = pd.read_excel(f_excel)
         cols = list(df_raw.columns)
-        st.divider()
         
-        cm1, cm2, cm3 = st.columns(3)
+        cm1, cm2 = st.columns(2)
         with cm1:
             sel_cta = st.selectbox("CUENTA:", cols, index=0)
             sel_bar = st.selectbox("BARRIO:", cols, index=1)
         with cm2:
             sel_dir = st.selectbox("DIRECCIÓN:", cols, index=2)
             sel_med = st.selectbox("MEDIDOR:", ["NO TIENE"] + cols, index=0)
-        with cm3:
-            st.write("Cupo: 35 por técnico")
 
-        if st.button("🚀 BALANCEAR RUTA BLINDADA", type="primary"):
+        if st.button("🚀 APLICAR CUPOS Y BALANCEAR", type="primary"):
             df = df_raw.copy()
             maestro = st.session_state['mapa_actual']
             df['TECNICO'] = df[sel_bar].apply(lambda x: maestro.get(str(x).upper().strip(), {}).get('nombre', 'SIN_ASIGNAR'))
-            df['CELULAR'] = df[sel_bar].apply(get_cel)
+            df['CELULAR'] = df[sel_bar].apply(lambda x: maestro.get(str(x).upper().strip(), {}).get('celular', ''))
             
-            # ORDENAMIENTO BLINDADO (Usando tuplas para evitar el error)
+            # ORDENAMIENTO BLINDADO (ALAMEDA DEL RÍO)
             df['SORT_D'] = df[sel_dir].astype(str).apply(natural_sort_key)
             df = df.sort_values(by=[sel_bar, 'SORT_D'])
             
             st.session_state['df_simulado'] = df.drop(columns=['SORT_D'])
             st.session_state['col_map'] = {'CUENTA': sel_cta, 'BARRIO': sel_bar, 'DIRECCION': sel_dir, 'MEDIDOR': sel_med}
-            st.success("✅ Ruta organizada.")
+            st.success("✅ Ruta balanceada.")
 
         if st.session_state['df_simulado'] is not None:
-            st.divider()
             df = st.session_state['df_simulado']
             for tec in sorted(df['TECNICO'].unique()):
                 if tec == "SIN_ASIGNAR": continue
@@ -163,9 +155,9 @@ with t_op:
                 cel = sub['CELULAR'].iloc[0]
                 with st.container():
                     st.markdown(f"""<div class="wa-card"><b>👷 {tec}</b> - {len(sub)} gestiones</div>""", unsafe_allow_html=True)
-                    if st.button(f"🤖 Mandar Hoja de Ruta a {tec}", key=f"btn_{tec}"):
+                    if st.button(f"🤖 Enviar a {tec}", key=f"btn_{tec}"):
                         pdf_bytes = crear_pdf_lista(sub, tec, st.session_state['col_map'])
                         msg = f"Hola {tec}, te envío tu ruta de hoy. ¡Dale con toda!"
                         if enviar_pdf_web(cel, pdf_bytes, f"Ruta_{tec}.pdf", msg):
                             st.success(f"¡Enviado!")
-                        else: st.error("Error al enviar.")
+                        else: st.error("❌ Error: Revisa la conexión en Replit.")
