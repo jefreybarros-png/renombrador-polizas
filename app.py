@@ -11,7 +11,7 @@ import math
 import numpy as np
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Implacable V129", layout="wide")
+st.set_page_config(page_title="Logística Estructurada V131", layout="wide")
 
 st.markdown("""
     <style>
@@ -20,15 +20,12 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #262730; color: white; border-radius: 5px; border: 1px solid #41444C; }
     .stTabs [aria-selected="true"] { background-color: #004080; color: white; border: 2px solid #00A8E8; }
     div[data-testid="stDataFrame"] { background-color: #262730; border-radius: 10px; }
-    .status-box { padding: 10px; border-radius: 5px; margin-bottom: 10px; font-weight: bold; }
-    .success { background-color: #1b4d3e; color: #ccffdd; }
-    .warning { background-color: #7d5e00; color: #fff4cc; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Sincronización y Rastreo Total")
+st.title("🎯 Logística ITA: Lógica Híbrida + PDF Estructurado")
 
-# --- FUNCIONES DE LIMPIEZA ---
+# --- FUNCIONES ---
 def limpiar_estricto(txt):
     if not txt: return ""
     txt = str(txt).upper().strip()
@@ -36,17 +33,13 @@ def limpiar_estricto(txt):
     return txt
 
 def normalizar_numero(txt):
-    """Quita ceros a la izquierda y espacios para comparar números."""
     if not txt: return ""
-    # Dejar solo dígitos
     nums = re.sub(r'\D', '', str(txt))
-    if nums:
-        return str(int(nums)) # Esto convierte "00123" en "123"
-    return ""
+    return str(int(nums)) if nums else ""
 
 def buscar_tecnico_exacto(barrio_input, mapa_barrios):
     if not barrio_input: return "SIN_ASIGNAR"
-    b_raw = limpiar_estricto(barrio_input)
+    b_raw = limpiar_estricto(str(barrio_input))
     if b_raw in mapa_barrios: return mapa_barrios[b_raw]
     b_flex = re.sub(r'\b(BARRIO|URB|URBANIZACION|SECTOR|ETAPA)\b', '', b_raw).strip()
     if b_flex in mapa_barrios: return mapa_barrios[b_flex]
@@ -68,7 +61,7 @@ def cargar_maestro_dinamico(file):
     return mapa
 
 def calcular_peso_js(txt):
-    clean = limpiar_estricto(txt)
+    clean = limpiar_estricto(str(txt))
     penalidad = 5000 if "SUR" in clean else 0
     nums = re.findall(r'(\d+)', clean)
     ref = int(nums[0]) if nums else 0
@@ -111,14 +104,21 @@ def crear_pdf_lista(df, tecnico, col_map):
         else:
             pdf.set_text_color(0, 0, 0)
 
+        def get_val(key):
+            col_name = col_map.get(key)
+            if col_name and col_name != "NO TIENE":
+                return str(row[col_name])
+            return ""
+
         data_row = [
             str(idx),
-            str(row[col_map['CUENTA']]),
-            str(row[col_map['MEDIDOR']])[:15] if col_map['MEDIDOR'] else "",
+            get_val('CUENTA'),
+            get_val('MEDIDOR')[:15],
             barrio_txt[:35],
-            str(row[col_map['DIRECCION']])[:50] if col_map['DIRECCION'] else "",
-            str(row[col_map['CLIENTE']])[:30] if col_map['CLIENTE'] else ""
+            get_val('DIRECCION')[:50],
+            get_val('CLIENTE')[:30]
         ]
+        
         for val, w in zip(data_row, widths):
             try: val_enc = val.encode('latin-1', 'replace').decode('latin-1')
             except: val_enc = val
@@ -130,17 +130,18 @@ def crear_pdf_lista(df, tecnico, col_map):
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = {}
 if 'df_simulado' not in st.session_state: st.session_state['df_simulado'] = None
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
+if 'col_map' not in st.session_state: st.session_state['col_map'] = {}
 
-# --- UI TABS ---
-tab_operacion, tab_visor, tab_config = st.tabs(["🚀 Carga", "🌍 Visor Manual", "⚙️ Operarios"])
+# --- TABS ---
+tab_operacion, tab_visor, tab_config = st.tabs(["🚀 Carga y Balanceo", "🌍 Ajuste Manual (Visor)", "⚙️ Operarios"])
 
 # --- TAB 3: CONFIG ---
 with tab_config:
     st.header("Base de Operarios")
-    maestro_file = st.file_uploader("Subir Maestro", type=["xlsx", "csv"])
+    maestro_file = st.file_uploader("Subir Maestro (Barrio | Técnico)", type=["xlsx", "csv"])
     if maestro_file:
         st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_file)
-        st.success("✅ Actualizado")
+        st.success("✅ Base Actualizada")
 
 # --- SIDEBAR ---
 lista_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
@@ -158,72 +159,88 @@ with tab_operacion:
     with c2: excel_in = st.file_uploader("2. Excel Ruta", type=["xlsx", "csv"])
     
     if excel_in and lista_tecnicos:
-        if st.button("🚀 INICIAR BALANCEO", type="primary"):
-            try:
-                if excel_in.name.endswith('.csv'): df = pd.read_csv(excel_in, sep=None, engine='python', encoding='utf-8-sig')
-                else: df = pd.read_excel(excel_in)
-                df.columns = [limpiar_estricto(c) for c in df.columns]
-                
-                def find(k_list):
-                    for k in k_list:
-                        for c in df.columns: 
-                            if x := re.search(k, c, re.IGNORECASE): return c # Regex search mas flexible
-                            if k in c: return c
-                    return None
-                
-                c_barrio = find(r'BARRIO|SECTOR|URB')
-                c_cta = find(r'CUENTA|POLIZA|CONTRATO|SUSCRIP') # Regex
-                
-                if c_barrio and c_cta:
-                    df['TECNICO_IDEAL'] = df[c_barrio].apply(lambda x: buscar_tecnico_exacto(str(x), st.session_state['mapa_actual']))
-                    df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
-                    df['ORIGEN_REAL'] = None
-                    
-                    # Balanceo Cascada
-                    TOPE = math.ceil(len(df)/len(TECNICOS_ACTIVOS)) if TECNICOS_ACTIVOS else 35
-                    conteo = df['TECNICO_IDEAL'].value_counts()
-                    overs = [t for t in TECNICOS_ACTIVOS if conteo.get(t, 0) > TOPE]
-                    
-                    for giver in overs:
-                        rows = df[df['TECNICO_FINAL'] == giver]
-                        excedente = len(rows) - TOPE
-                        if excedente > 0:
-                            idx_move = rows.index[-excedente:]
-                            counts_now = df['TECNICO_FINAL'].value_counts()
-                            candidates = [t for t in TECNICOS_ACTIVOS if t != giver and counts_now.get(t, 0) < TOPE]
-                            if candidates:
-                                receiver = sorted(candidates, key=lambda x: counts_now.get(x, 0))[0]
-                                df.loc[idx_move, 'TECNICO_FINAL'] = receiver
-                                df.loc[idx_move, 'ORIGEN_REAL'] = giver
+        # LECTURA PRELIMINAR PARA MAPEO
+        try:
+            if excel_in.name.endswith('.csv'): df_raw = pd.read_csv(excel_in, sep=None, engine='python', encoding='utf-8-sig')
+            else: df_raw = pd.read_excel(excel_in)
+            cols_excel = list(df_raw.columns)
+            
+            st.divider()
+            st.subheader("🔗 Mapeo de Columnas")
+            st.info("Confirma las columnas para evitar errores de datos cruzados.")
+            
+            def idx_of(keywords):
+                for i, col in enumerate(cols_excel):
+                    for k in keywords:
+                        if k in str(col).upper(): return i
+                return 0
 
-                    for t in df['TECNICO_FINAL'].unique():
-                        if t not in TECNICOS_ACTIVOS and t != "SIN_ASIGNAR":
-                            idx_absent = df[df['TECNICO_FINAL'] == t].index
-                            counts_now = df['TECNICO_FINAL'].value_counts()
-                            candidates = [c for c in TECNICOS_ACTIVOS if counts_now.get(c, 0) < TOPE + 15]
-                            if candidates:
-                                receiver = sorted(candidates, key=lambda x: counts_now.get(x, 0))[0]
-                                df.loc[idx_absent, 'TECNICO_FINAL'] = receiver
-                                df.loc[idx_absent, 'ORIGEN_REAL'] = f"{t} (AUSENTE)"
-                            else:
-                                df.loc[idx_absent, 'TECNICO_FINAL'] = "SIN_GESTOR_ACTIVO"
+            cm1, cm2, cm3 = st.columns(3)
+            with cm1:
+                sel_cta = st.selectbox("Columna CUENTA/PÓLIZA:", cols_excel, index=idx_of(['CUENTA', 'POLIZA', 'CONTRATO']))
+                sel_bar = st.selectbox("Columna BARRIO:", cols_excel, index=idx_of(['BARRIO', 'SECTOR', 'URB']))
+            with cm2:
+                sel_dir = st.selectbox("Columna DIRECCIÓN:", cols_excel, index=idx_of(['DIRECCION', 'DIR', 'UBIC']))
+                sel_med = st.selectbox("Columna MEDIDOR (Opcional):", ["NO TIENE"] + cols_excel, index=idx_of(['MEDIDOR', 'SERIE']) + 1)
+            with cm3:
+                sel_cli = st.selectbox("Columna CLIENTE (Opcional):", ["NO TIENE"] + cols_excel, index=idx_of(['CLIENTE', 'NOMBRE', 'SUSCRIPTOR']) + 1)
 
-                    st.session_state['df_simulado'] = df
-                    st.session_state['col_barrio'] = c_barrio
-                    st.session_state['col_cta'] = c_cta
-                    st.session_state['col_dir'] = find(r'DIR|UBIC|DIREC')
-                    st.session_state['col_med'] = find(r'MED|SERIE|APA')
-                    st.session_state['col_cli'] = find(r'CLI|NOM|SUS')
-                    
-                    st.success("✅ Balanceo completado.")
-                else: st.error("Faltan columnas BARRIO o CUENTA.")
-            except Exception as e: st.error(f"Error procesando: {e}")
+            col_map_user = {
+                'CUENTA': sel_cta, 'BARRIO': sel_bar, 'DIRECCION': sel_dir,
+                'MEDIDOR': sel_med if sel_med != "NO TIENE" else None,
+                'CLIENTE': sel_cli if sel_cli != "NO TIENE" else None
+            }
+            st.session_state['col_map'] = col_map_user
+
+            if st.button("🚀 EJECUTAR BALANCEO AUTOMÁTICO", type="primary"):
+                df = df_raw.copy()
+                
+                # 1. Asignación
+                df['TECNICO_IDEAL'] = df[sel_bar].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
+                df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
+                df['ORIGEN_REAL'] = None
+                
+                # 2. Balanceo Cascada
+                TOPE = math.ceil(len(df)/len(TECNICOS_ACTIVOS)) if TECNICOS_ACTIVOS else 35
+                conteo = df['TECNICO_IDEAL'].value_counts()
+                overs = [t for t in TECNICOS_ACTIVOS if conteo.get(t, 0) > TOPE]
+                
+                for giver in overs:
+                    rows = df[df['TECNICO_FINAL'] == giver]
+                    excedente = len(rows) - TOPE
+                    if excedente > 0:
+                        idx_move = rows.index[-excedente:]
+                        counts_now = df['TECNICO_FINAL'].value_counts()
+                        candidates = [t for t in TECNICOS_ACTIVOS if t != giver and counts_now.get(t, 0) < TOPE]
+                        if candidates:
+                            receiver = sorted(candidates, key=lambda x: counts_now.get(x, 0))[0]
+                            df.loc[idx_move, 'TECNICO_FINAL'] = receiver
+                            df.loc[idx_move, 'ORIGEN_REAL'] = giver
+
+                # Ausentes
+                for t in df['TECNICO_FINAL'].unique():
+                    if t not in TECNICOS_ACTIVOS and t != "SIN_ASIGNAR":
+                        idx_absent = df[df['TECNICO_FINAL'] == t].index
+                        counts_now = df['TECNICO_FINAL'].value_counts()
+                        candidates = [c for c in TECNICOS_ACTIVOS if counts_now.get(c, 0) < TOPE + 15]
+                        if candidates:
+                            receiver = sorted(candidates, key=lambda x: counts_now.get(x, 0))[0]
+                            df.loc[idx_absent, 'TECNICO_FINAL'] = receiver
+                            df.loc[idx_absent, 'ORIGEN_REAL'] = f"{t} (AUSENTE)"
+                        else:
+                            df.loc[idx_absent, 'TECNICO_FINAL'] = "SIN_GESTOR_ACTIVO"
+
+                st.session_state['df_simulado'] = df
+                st.success("✅ Balanceo completado. Ve a la Pestaña 2 para ajustar o descargar.")
+
+        except Exception as e: st.error(f"Error leyendo archivo: {e}")
 
 # --- TAB 2: VISOR ---
 with tab_visor:
     if st.session_state['df_simulado'] is not None:
         df = st.session_state['df_simulado']
-        c_barrio = st.session_state['col_barrio']
+        col_map = st.session_state['col_map']
+        c_barrio = col_map['BARRIO']
         
         # MOVER
         c1, c2, c3, c4 = st.columns([1.5, 1.5, 1.5, 1])
@@ -258,25 +275,19 @@ with tab_visor:
 
         st.divider()
         if pdf_in:
-            if st.button("✅ GENERAR PAQUETE COMPLETO (DOBLE RESPALDO)", type="primary"):
-                with st.spinner("Indexando PDFs y creando carpetas..."):
+            if st.button("✅ GENERAR PAQUETE COMPLETO", type="primary"):
+                with st.spinner("Indexando PDFs y creando estructura..."):
                     df['CARPETA'] = df['TECNICO_FINAL']
                     
-                    # 1. INDEXAR PDF (RASTREO IMPLACABLE)
+                    # 1. INDEXAR PDF
                     pdf_in.seek(0)
                     doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
-                    # Diccionario Inverso: {Numero_Normalizado: Bytes_PDF}
                     mapa_p = {} 
                     
-                    prog_bar = st.progress(0)
                     for i in range(len(doc)):
                         txt = doc[i].get_text()
-                        
-                        # ESTRATEGIA MULTIPUNTO: Capturar TODOS los números posibles de la hoja
-                        # Esto encuentra Cuentas, Medidores y Referencias
                         matches = re.findall(r'\b(\d{4,15})\b', txt)
                         
-                        # Extraer página (y posible anexo)
                         sub = fitz.open()
                         sub.insert_pdf(doc, from_page=i, to_page=i)
                         if i + 1 < len(doc):
@@ -286,30 +297,20 @@ with tab_visor:
                         pdf_bytes = sub.tobytes()
                         sub.close()
                         
-                        # Asociar TODOS los números encontrados a esta página
                         for m in matches:
                             norm = normalizar_numero(m)
                             if norm: mapa_p[norm] = pdf_bytes
-                        
-                        if i % 10 == 0: prog_bar.progress(i / len(doc))
-                    
-                    prog_bar.progress(100)
 
                     # 2. GENERAR ZIP
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w") as zf:
-                        # Archivos Generales
+                        # CARPETA AFUERA (BANCO TOTAL)
                         for k_num, p_bytes in mapa_p.items():
-                            # Solo guardamos en backup general uno por número para no duplicar demasiado
-                            # (Opcional: saltar esto para ahorrar espacio si son muchos)
-                            pass
+                            if len(k_num) > 4: zf.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{k_num}.pdf", p_bytes)
                         
-                        # Excel Maestro
                         out_b = io.BytesIO()
                         with pd.ExcelWriter(out_b, engine='xlsxwriter') as w: df.to_excel(w, index=False)
                         zf.writestr("00_CONSOLIDADO_GENERAL.xlsx", out_b.getvalue())
-                        
-                        c_map = {'CUENTA': st.session_state['col_cta'], 'MEDIDOR': st.session_state['col_med'], 'BARRIO': c_barrio, 'DIRECCION': st.session_state['col_dir'], 'CLIENTE': st.session_state['col_cli']}
                         
                         reporte_faltantes = []
 
@@ -318,29 +319,30 @@ with tab_visor:
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
-                            # ORDENAMIENTO (Crucial para sincronización)
-                            if st.session_state['col_dir']:
-                                df_t['P'] = df_t[st.session_state['col_dir']].astype(str).apply(calcular_peso_js)
+                            # ORDENAR
+                            c_dir = col_map.get('DIRECCION')
+                            if c_dir:
+                                df_t['P'] = df_t[c_dir].astype(str).apply(calcular_peso_js)
                                 df_t = df_t.sort_values('P')
                             
-                            # A. HOJA DE RUTA
-                            pdf_h = crear_pdf_lista(df_t, tec, c_map)
+                            # ARCHIVOS DENTRO DEL TÉCNICO
+                            # 1. LISTADO
+                            pdf_h = crear_pdf_lista(df_t, tec, col_map)
                             zf.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", pdf_h)
                             
-                            # B. EXCEL TÉCNICO
+                            # 2. EXCEL
                             out_t = io.BytesIO()
                             with pd.ExcelWriter(out_t, engine='xlsxwriter') as w: df_t.to_excel(w, index=False)
                             zf.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", out_t.getvalue())
                             
-                            # C. BUSQUEDA Y ARMADO DE PDFs
+                            # 3. POLIZAS UNIDAS Y 4. INDIVIDUALES
                             merger = fitz.open()
                             count_merged = 0
                             
                             for _, r in df_t.iterrows():
-                                # Intentamos buscar por CUENTA y por MEDIDOR
                                 targets = []
-                                if st.session_state['col_cta']: targets.append(str(r[st.session_state['col_cta']]))
-                                if st.session_state['col_med']: targets.append(str(r[st.session_state['col_med']]))
+                                if col_map.get('CUENTA'): targets.append(str(r[col_map['CUENTA']]))
+                                if col_map.get('MEDIDOR'): targets.append(str(r[col_map['MEDIDOR']]))
                                 
                                 pdf_found = None
                                 used_key = ""
@@ -353,10 +355,10 @@ with tab_visor:
                                         break
                                 
                                 if pdf_found:
-                                    # 1. Guardar en carpeta individual (Lo que pediste "de adentro")
+                                    # GUARDAR INDIVIDUAL ADENTRO
                                     zf.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{used_key}.pdf", pdf_found)
                                     
-                                    # 2. Pegar al unificado
+                                    # AGREGAR AL UNIFICADO
                                     with fitz.open(stream=pdf_found, filetype="pdf") as temp:
                                         merger.insert_pdf(temp)
                                     count_merged += 1
@@ -373,12 +375,12 @@ with tab_visor:
                     st.session_state['zip_listo'] = zip_buffer.getvalue()
                     
                     if reporte_faltantes:
-                        st.warning(f"⚠️ Proceso terminado. Faltaron {len(reporte_faltantes)} pólizas (ver REPORTE_FALTANTES.txt).")
+                        st.warning(f"⚠️ Faltaron {len(reporte_faltantes)} pólizas.")
                     else:
-                        st.success("✅ ¡Perfecto! Todos los archivos generados y sincronizados.")
+                        st.success("✅ ¡Perfecto!")
     else:
         st.info("Sube archivos.")
 
 if st.session_state['zip_listo']:
     st.sidebar.divider()
-    st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Total.zip", "application/zip", type="primary")
+    st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Final.zip", "application/zip", type="primary")
