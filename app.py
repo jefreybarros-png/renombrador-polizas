@@ -1,15 +1,14 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 12.0 "VISIBILIDAD TOTAL"             #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 13.0 "SATURATION MODE"               #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: FEBRERO 2026                                                                 #
 #                                                                                       #
-#   MEJORA CRÍTICA V12.0:                                                               #
-#   - Ahora el Panel de Ajuste Manual (Tab 3) muestra a TODOS los técnicos activos,     #
-#     incluso si tienen 0 visitas asignadas.                                            #
-#   - Permite mover carga hacia técnicos que quedaron libres por defecto.                 #
-#   - Mantiene el blindaje contra bucles infinitos y la seguridad de sesión.            #
-#   - Mantiene intacta la generación de ZIP, Web y PDF.                                 #
+#   AJUSTE DE LÓGICA V13.0:                                                             #
+#   - Cambio de algoritmo de reparto: De "Equitativo" a "Saturación" (Llenar Vaso).     #
+#   - Cuando un técnico falta, el sistema elige un cubridor y lo llena hasta su tope    #
+#     antes de pasar al siguiente, evitando dispersar la carga ("regar operarios").     #
+#   - Se mantiene la seguridad de sesión, ZIP completo y Portal Web.                    #
 #                                                                                       #
 #########################################################################################
 
@@ -33,14 +32,14 @@ import base64
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="Logística ITA | v12.0 Visible",
+    page_title="Logística ITA | v13.0 Saturation",
     layout="wide",
     page_icon="🚚",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
-        'About': "Sistema Logístico ITA - Versión 12.0 Visibilidad Total"
+        'About': "Sistema Logístico ITA - Versión 13.0 Llenado de Vaso"
     }
 )
 
@@ -521,10 +520,10 @@ with st.sidebar:
             """, unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión v12.0")
+        st.info("Bienvenido al Portal de Autogestión v13.0")
 
     st.markdown("---")
-    st.caption("Sistema Logístico Seguro v12.0")
+    st.caption("Sistema Logístico Seguro v13.0")
 
 # =======================================================================================
 # SECCIÓN 6: VISTA DEL TÉCNICO (PORTAL DE DESCARGAS)
@@ -713,45 +712,95 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 sl = st.selectbox("Cliente", ["NO TIENE"]+cols, index=ix(['CLIENTE'])+1)
                 cmap = {'BARRIO': sb, 'DIRECCION': sd, 'CUENTA': sc, 'MEDIDOR': sm if sm!="NO TIENE" else None, 'CLIENTE': sl if sl!="NO TIENE" else None}
                 
-                if st.button("🚀 EJECUTAR BALANCEO AUTOMÁTICO", type="primary"):
+                if st.button("🚀 EJECUTAR BALANCEO (SATURACIÓN)", type="primary"):
                     if up_pdf and not st.session_state['mapa_polizas_cargado']:
                         st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
                     
                     df_proc = df.copy()
+                    
+                    # 1. Asignar Ideal
                     df_proc['TECNICO_IDEAL'] = df_proc[sb].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
+                    
+                    # 2. Manejo de Inactivos (VACANTE)
                     df_proc['TECNICO_FINAL'] = df_proc['TECNICO_IDEAL'].apply(lambda x: x if x in tecnicos_hoy else "VACANTE")
                     df_proc['ORIGEN_REAL'] = None
                     msk_vac = df_proc['TECNICO_FINAL'] == "VACANTE"
                     df_proc.loc[msk_vac, 'ORIGEN_REAL'] = df_proc.loc[msk_vac, 'TECNICO_IDEAL']
                     
+                    # 3. Ordenar (Tuplas Naturales)
                     df_proc['S'] = df_proc[sd].astype(str).apply(natural_sort_key)
                     df_proc = df_proc.sort_values(by=[sb, 'S'])
                     
-                    vacs = df_proc[df_proc['TECNICO_FINAL'] == "VACANTE"]
-                    for idx_v, _ in vacs.iterrows():
-                        cnt_live = df_proc[df_proc['TECNICO_FINAL'].isin(tecnicos_hoy)]['TECNICO_FINAL'].value_counts()
-                        for t in tecnicos_hoy:
-                            if t not in cnt_live: cnt_live[t] = 0
-                        mejor = cnt_live.idxmin()
-                        df_proc.at[idx_v, 'TECNICO_FINAL'] = mejor
+                    # -------------------------------------------------------------
+                    # ALGORITMO DE SATURACIÓN (LLENAR VASO) V13.0
+                    # -------------------------------------------------------------
                     
-                    cnt = df_proc['TECNICO_FINAL'].value_counts()
-                    for tech in [t for t in tecnicos_hoy if cnt.get(t,0) > LIMITES.get(t,35)]:
+                    # Pre-calcular cargas iniciales de los activos
+                    cargas_actuales = df_proc[df_proc['TECNICO_FINAL'].isin(tecnicos_hoy)]['TECNICO_FINAL'].value_counts().to_dict()
+                    for t in tecnicos_hoy:
+                        if t not in cargas_actuales: cargas_actuales[t] = 0
+                    
+                    # A. REPARTIR VACANTES (INASISTENCIAS)
+                    vacantes = df_proc[df_proc['TECNICO_FINAL'] == "VACANTE"]
+                    
+                    # Ordenamos a los técnicos por carga inicial (para empezar a llenar al más vacío)
+                    # Pero OJO: No reordenamos en cada iteración para evitar "regar".
+                    # Mantenemos un orden de prioridad fijo y vamos llenando.
+                    orden_prioridad = sorted(tecnicos_hoy, key=lambda x: cargas_actuales[x])
+                    
+                    for idx_v, _ in vacantes.iterrows():
+                        asignado = False
+                        for candidato in orden_prioridad:
+                            limite = LIMITES.get(candidato, 35)
+                            if cargas_actuales[candidato] < limite:
+                                df_proc.at[idx_v, 'TECNICO_FINAL'] = candidato
+                                cargas_actuales[candidato] += 1
+                                asignado = True
+                                break # Salimos del loop, ya asignamos esta vacante. Pasamos a la siguiente.
+                        
+                        # Si todos están llenos, asignar al que menos tiene (Fallback)
+                        if not asignado:
+                            # Re-evaluar quién es el mínimo real ahora
+                            mejor = min(cargas_actuales, key=cargas_actuales.get)
+                            df_proc.at[idx_v, 'TECNICO_FINAL'] = mejor
+                            cargas_actuales[mejor] += 1
+
+                    # B. BALANCEAR EXCEDENTES (CUPOS PROPIOS)
+                    # Recalcular cargas después de repartir vacantes
+                    for tech in tecnicos_hoy:
+                        carga_tech = len(df_proc[df_proc['TECNICO_FINAL'] == tech])
                         tope = LIMITES.get(tech, 35)
-                        rows = df_proc[df_proc['TECNICO_FINAL'] == tech]
-                        exc = len(rows) - tope
-                        if exc > 0:
-                            mov = rows.index[-exc:]
-                            now = df_proc['TECNICO_FINAL'].value_counts()
-                            for t in tecnicos_hoy: 
-                                if t not in now: now[t]=0
-                            best = sorted([t for t in tecnicos_hoy if t!=tech], key=lambda x: now.get(x,0))[0]
-                            df_proc.loc[mov, 'TECNICO_FINAL'] = best
-                            df_proc.loc[mov, 'ORIGEN_REAL'] = tech
-                    
+                        
+                        if carga_tech > tope:
+                            # Identificar filas sobrantes (las últimas)
+                            filas_tech = df_proc[df_proc['TECNICO_FINAL'] == tech]
+                            excedente = carga_tech - tope
+                            indices_mover = filas_tech.index[-excedente:]
+                            
+                            # Mover excedente usando la misma lógica de saturación
+                            for idx_m in indices_mover:
+                                asignado_exc = False
+                                # Ordenar candidatos (excluyendo al tech actual)
+                                candidatos_exc = sorted([t for t in tecnicos_hoy if t != tech], key=lambda x: cargas_actuales.get(x, 0))
+                                
+                                for cand in candidatos_exc:
+                                    if cargas_actuales.get(cand, 0) < LIMITES.get(cand, 35):
+                                        df_proc.at[idx_m, 'TECNICO_FINAL'] = cand
+                                        df_proc.at[idx_m, 'ORIGEN_REAL'] = tech
+                                        cargas_actuales[cand] = cargas_actuales.get(cand, 0) + 1
+                                        asignado_exc = True
+                                        break
+                                
+                                if not asignado_exc:
+                                    # Fallback: al mínimo absoluto
+                                    mejor = min(candidatos_exc, key=lambda x: cargas_actuales.get(x, 0))
+                                    df_proc.at[idx_m, 'TECNICO_FINAL'] = mejor
+                                    df_proc.at[idx_m, 'ORIGEN_REAL'] = tech
+                                    cargas_actuales[mejor] += 1
+
                     st.session_state['df_simulado'] = df_proc.drop(columns=['S'])
                     st.session_state['col_map_final'] = cmap
-                    st.success("✅ Balanceo completado.")
+                    st.success("✅ Balanceo Terminado (Modo Saturación).")
 
             elif not tecnicos_hoy and st.session_state['mapa_actual']:
                 st.error("⚠️ No hay técnicos activos. Revisa la barra lateral.")
@@ -777,7 +826,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         brs = df[df['TECNICO_FINAL']==org][cbar].value_counts()
                         bar = st.selectbox("Barrio:", [f"{k} ({v})" for k,v in brs.items()])
                     else: bar=None
-                with c3: dst = st.selectbox("Para:", ["-"]+todos_activos_hoy) # Permitir mover a CUALQUIERA
+                with c3: dst = st.selectbox("Para:", ["-"]+todos_activos_hoy)
                 with c4:
                     st.write("")
                     if st.button("Mover"):
@@ -795,7 +844,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         s = df[df['TECNICO_FINAL']==t]
                         cantidad = len(s)
                         
-                        # Título dinámico
                         if cantidad == 0:
                             titulo_card = f"🟢 {t} (LIBRE - 0 Visitas)"
                         else:
@@ -807,7 +855,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 r['B'] = r.apply(lambda x: f"⚠️ {x[cbar]}" if pd.notna(x['ORIGEN_REAL']) else x[cbar], axis=1)
                                 st.dataframe(r[['B','N']], hide_index=True, use_container_width=True)
                             else:
-                                st.caption("Sin carga asignada. Disponible para recibir barrios.")
+                                st.caption("Disponible para recibir carga.")
             else: st.info("Sin datos.")
 
         # --- TAB 4: PUBLICAR ---
@@ -830,11 +878,9 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         safe = str(t).replace(" ","_")
                         pto = os.path.join(CARPETA_PUBLICA, safe); os.makedirs(pto, exist_ok=True)
                         
-                        # Ruta
                         with open(os.path.join(pto, "1_HOJA_DE_RUTA.pdf"), "wb") as f:
                             f.write(crear_pdf_lista_final(dt, t, cmf))
                         
-                        # Legalizacion
                         if pls:
                             mg = fitz.open(); n=0
                             for _,r in dt.iterrows():
@@ -855,16 +901,13 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 if st.button("GENERAR ZIP MAESTRO COMPLETO"):
                     bf = io.BytesIO()
                     with zipfile.ZipFile(bf,"w") as z:
-                        # 0. Banco
                         if pls:
                             for k,v in pls.items(): z.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{k}.pdf", v)
                         
-                        # 0. Excel
                         out = io.BytesIO(); 
                         with pd.ExcelWriter(out, engine='xlsxwriter') as w: dff.to_excel(w, index=False)
                         z.writestr("00_CONSOLIDADO.xlsx", out.getvalue())
                         
-                        # Carpetas
                         for t in tfin:
                             safe = str(t).replace(" ","_")
                             dt = dff[dff['TECNICO_FINAL']==t].copy()
@@ -882,9 +925,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 for _,r in dt.iterrows():
                                     c = normalizar_numero(str(r[cmf['CUENTA']]))
                                     if c in pls:
-                                        # Carpeta 4: Individuales
                                         z.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{c}.pdf", pls[c])
-                                        # Carpeta 3: Merge
                                         with fitz.open(stream=pls[c], filetype="pdf") as x: mg.insert_pdf(x)
                                         n+=1
                                 if n>0: z.writestr(f"{safe}/3_PAQUETE_LEGALIZACION.pdf", mg.tobytes())
