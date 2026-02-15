@@ -6,131 +6,114 @@ import io
 import zipfile
 import unicodedata
 
-# --- FUNCIONES DE NORMALIZACIÓN Y LIMPIEZA ---
-def normalizar(texto):
-    """Elimina tildes, espacios extra y convierte a mayúsculas."""
+# --- NORMALIZACIÓN TOTAL (Tildes, Espacios, Mayúsculas) ---
+def limpiar_texto(texto):
     if not texto: return ""
+    # Elimina caracteres invisibles, tildes y espacios extra
     texto = str(texto).upper().strip()
-    return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+    texto = "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+    return re.sub(r'\s+', ' ', texto) # Colapsa espacios múltiples
 
-# --- LÓGICA DE ORDENAMIENTO DE NOMENCLATURA (BARRANQUILLA) ---
-VALOR_SUFIJOS = {
-    'A': 0.1, 'B': 0.2, 'C': 0.3, 'D': 0.4, 'E': 0.5, 
-    'F': 0.6, 'G': 0.7, 'H': 0.8, 'BIS': 0.05
-}
+# --- LÓGICA DE NOMENCLATURA (BARRANQUILLA) ---
+VALOR_SUFIJOS = {'A': 0.1, 'B': 0.2, 'C': 0.3, 'D': 0.4, 'E': 0.5, 'BIS': 0.05}
 
 def calcular_peso_direccion(dir_text):
-    """Convierte direcciones en números comparables para orden descendente."""
-    texto = normalizar(dir_text)
-    # Extrae el número principal y sufijo (ej: 90B, 45BIS)
+    texto = limpiar_texto(dir_text)
     match = re.search(r'(\d+)\s*(BIS|[A-I])?', texto)
     if match:
-        numero = float(match.group(1))
-        sufijo = match.group(2)
-        peso = numero + VALOR_SUFIJOS.get(sufijo, 0.0)
+        peso = float(match.group(1)) + VALOR_SUFIJOS.get(match.group(2), 0.0)
     else:
         peso = 0.0
-    
-    # El 'SUR' se penaliza para que en orden descendente quede al final del recorrido
-    if "SUR" in texto:
-        peso -= 5000 
+    if "SUR" in texto: peso -= 5000 
     return peso
 
-# --- CONFIGURACIÓN DE LA APP ---
-st.set_page_config(page_title="Logística Pro V89.0 - ITA RADIAN", layout="wide")
-st.title("🚛 Sistema Logístico: Unificación, Cruce y Reparto Inteligente")
-st.markdown("Organiza actas por **Gestor > Barrio > Dirección (Mayor a Menor)**.")
+st.set_page_config(page_title="Logística Pro V90.0", layout="wide")
+st.title("🚛 Sistema Logístico UT ITA RADIAN")
+st.markdown("Cruce dinámico de **Cuenta (Excel)** vs **Póliza (PDF)** con ordenamiento por nomenclatura.")
 
-# --- CARGA DE ARCHIVOS ---
-pdf_file = st.file_uploader("1. Subir PDF con Actas y Recortes", type="pdf")
-excel_file = st.file_uploader("2. Subir Base de Datos (Excel/CSV)", type=["xlsx", "csv"])
+pdf_file = st.file_uploader("1. Subir PDF (Pólizas y Recortes)", type="pdf")
+excel_file = st.file_uploader("2. Subir Base de Datos (Excel o CSV)", type=["xlsx", "csv"])
 
 if pdf_file and excel_file:
-    if st.button("🚀 Procesar y Generar Ruta Maestra"):
-        # 1. Carga y Normalización del Excel
+    if st.button("🚀 Iniciar Procesamiento"):
+        # --- CARGA INTELIGENTE DEL ARCHIVO ---
         try:
-            df = pd.read_excel(excel_file) if ".xlsx" in excel_file.name else pd.read_csv(excel_file)
-            df.columns = [normalizar(c) for c in df.columns]
+            if excel_file.name.endswith('.csv'):
+                # Intenta leer CSV detectando si es coma o punto y coma
+                df = pd.read_csv(excel_file, sep=None, engine='python', encoding='utf-8-sig')
+            else:
+                df = pd.read_excel(excel_file)
+            
+            # Limpiamos y normalizamos los nombres de las columnas
+            df.columns = [limpiar_texto(c) for c in df.columns]
         except Exception as e:
-            st.error(f"Error al leer el Excel: {e}")
+            st.error(f"Error al leer el archivo: {e}")
             st.stop()
 
-        # 2. Identificación dinámica de columnas
+        # --- BUSCADOR FLEXIBLE DE COLUMNAS (Independiente de espacios/mayúsculas) ---
         col_cuenta = next((c for c in df.columns if 'CUENTA' in c), None)
-        col_tecnico = next((c for c in df.columns if 'TECNICO' in c or 'OPERARIO' in c), 'TECNICO')
-        col_barrio = next((c for c in df.columns if 'BARRIO' in c), 'BARRIO')
-        col_dir = next((c for c in df.columns if 'DIRECCION' in c or 'DIR' in c), 'DIRECCION')
+        col_tecnico = next((c for c in df.columns if 'TECNICO' in c or 'OPERARIO' in c or 'GESTOR' in c), None)
+        col_barrio = next((c for c in df.columns if 'BARRIO' in c), None)
+        col_dir = next((c for c in df.columns if 'DIRECCION' in c or 'DIR' in c), None)
 
         if not col_cuenta:
-            st.error(f"❌ No se encontró la columna 'CUENTA'. Columnas detectadas: {list(df.columns)}")
+            st.error(f"❌ No se encontró la columna de Cuenta. Columnas detectadas: {list(df.columns)}")
             st.stop()
 
-        # 3. Procesamiento del PDF
+        # --- PROCESAMIENTO PDF Y UNIFICACIÓN ---
         doc_original = fitz.open(stream=pdf_file.read(), filetype="pdf")
         zip_buffer = io.BytesIO()
         
         with zipfile.ZipFile(zip_buffer, "w") as zip_final:
-            datos_por_gestor = {}
+            datos_gestores = {}
             i = 0
             while i < len(doc_original):
                 texto_pag = doc_original[i].get_text()
-                # Buscamos 'Póliza No' en el PDF
-                match_pol = re.search(r"Póliza\s*No:?\s*(\d+)", texto_pag, re.IGNORECASE)
+                match_pol = re.search(r"Poliza\s*No:?\s*(\d+)", limpiar_texto(texto_pag), re.IGNORECASE)
                 
                 if match_pol:
-                    poliza_pdf = str(match_pol.group(1))
-                    paginas_del_doc = [i]
+                    poliza_id = str(match_pol.group(1))
+                    paginas_doc = [i]
                     
-                    # Unificación de recortes/firmas (hojas sin póliza nueva)
+                    # Une páginas de firmas/recortes (pág 19 y 20)
                     while i + 1 < len(doc_original):
-                        if not re.search(r"Póliza\s*No:?", doc_original[i+1].get_text(), re.IGNORECASE):
-                            paginas_del_doc.append(i+1)
+                        texto_sig = limpiar_texto(doc_original[i+1].get_text())
+                        if "POLIZA NO" not in texto_sig:
+                            paginas_doc.append(i+1)
                             i += 1
                         else: break
                     
-                    # Cruce: Cuenta (Excel) == Póliza (PDF)
-                    info_excel = df[df[col_cuenta].astype(str).str.contains(poliza_pdf)]
+                    # Cruce Account (Excel) vs Policy (PDF)
+                    info = df[df[col_cuenta].astype(str).str.contains(poliza_id)]
                     
-                    if not info_excel.empty:
-                        gestor = normalizar(info_excel.iloc[0].get(col_tecnico, 'SIN_GESTOR')).replace(" ", "_")
-                        barrio = normalizar(info_excel.iloc[0].get(col_barrio, 'SIN_BARRIO')).replace(" ", "_")
+                    if not info.empty:
+                        gestor = limpiar_texto(info.iloc[0].get(col_tecnico, 'SIN_GESTOR')).replace(" ", "_")
+                        barrio = limpiar_texto(info.iloc[0].get(col_barrio, 'SIN_BARRIO')).replace(" ", "_")
                         
-                        # Crear el PDF unificado (une pág 19 y 20 si es necesario)
-                        pdf_unificado = fitz.open()
-                        for p in paginas_del_doc:
-                            pdf_unificado.insert_pdf(doc_original, from_page=p, to_page=p)
+                        pdf_uni = fitz.open()
+                        for p in paginas_doc: pdf_uni.insert_pdf(doc_original, from_page=p, to_page=p)
                         
-                        # Guardar en ZIP: Carpeta Gestor -> Carpeta Barrio -> Archivo.pdf
-                        ruta_archivo_pdf = f"{gestor}/{barrio}/Poliza_{poliza_pdf}.pdf"
-                        zip_final.writestr(ruta_archivo_pdf, pdf_unificado.tobytes())
-                        pdf_unificado.close()
+                        # Organización: GESTOR -> BARRIO -> Poliza.pdf
+                        ruta_pdf = f"{gestor}/{barrio}/Poliza_{poliza_id}.pdf"
+                        zip_final.writestr(ruta_pdf, pdf_uni.tobytes())
+                        pdf_uni.close()
 
-                        # Guardar para el reporte del gestor
-                        if gestor not in datos_por_gestor:
-                            datos_por_gestor[gestor] = []
-                        datos_por_gestor[gestor].append(info_excel.iloc[0])
+                        if gestor not in datos_gestores: datos_gestores[gestor] = []
+                        datos_gestores[gestor].append(info.iloc[0])
                 i += 1
 
-            # --- GENERACIÓN DE TABLAS DE REPARTO ORGANIZADAS ---
-            for gestor, filas in datos_por_gestor.items():
+            # --- GENERACIÓN DE TABLAS ORGANIZADAS POR NOMENCLATURA ---
+            for gestor, filas in datos_gestores.items():
                 df_gestor = pd.DataFrame(filas)
-                # Ordenamiento de mayor a menor nomenclatura por barrio
-                df_gestor['PESO_ORDEN'] = df_gestor[col_dir].apply(calcular_peso_direccion)
-                # Orden: Barrio (A-Z), Dirección (Mayor a Menor)
-                df_gestor = df_gestor.sort_values(by=[col_barrio, 'PESO_ORDEN'], ascending=[True, False])
+                # Ordenamiento: Barrio (A-Z) y Nomenclatura (Mayor a Menor)
+                df_gestor['PESO_DIR'] = df_gestor[col_dir].apply(calcular_peso_direccion)
+                df_gestor = df_gestor.sort_values(by=[col_barrio, 'PESO_DIR'], ascending=[True, False])
 
                 output_xlsx = io.BytesIO()
                 with pd.ExcelWriter(output_xlsx, engine='xlsxwriter') as writer:
-                    df_gestor.drop(columns=['PESO_ORDEN']).to_excel(writer, index=False, sheet_name='Hoja_de_Ruta')
+                    df_gestor.drop(columns=['PESO_DIR']).to_excel(writer, index=False, sheet_name='Reparto')
                 
-                # Guardar Excel de reparto en la carpeta principal del gestor
                 zip_final.writestr(f"{gestor}/TABLA_REPARTO_{gestor}.xlsx", output_xlsx.getvalue())
 
-        st.success("✅ ¡Ruta Maestra generada con éxito!")
-        st.download_button(
-            label="⬇️ Descargar ZIP de Logística Final",
-            data=zip_buffer.getvalue(),
-            file_name="Logistica_ItaRadian_V89.zip",
-            mime="application/zip"
-        )
-        doc_original.close()
+        st.success("✅ ¡Procesado con éxito! Las columnas fueron detectadas automáticamente.")
+        st.download_button("⬇️ Descargar ZIP de Logística", zip_buffer.getvalue(), "Ruta_Maestra_ItaRadian.zip")
