@@ -11,7 +11,7 @@ import math
 import numpy as np
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Cupos V134", layout="wide")
+st.set_page_config(page_title="Logística Francotirador V133", layout="wide")
 
 st.markdown("""
     <style>
@@ -20,11 +20,10 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #262730; color: white; border-radius: 5px; border: 1px solid #41444C; }
     .stTabs [aria-selected="true"] { background-color: #004080; color: white; border: 2px solid #00A8E8; }
     div[data-testid="stDataFrame"] { background-color: #262730; border-radius: 10px; }
-    .highlight { color: #FFA500; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Cupos Personalizados por Técnico")
+st.title("🎯 Logística ITA: Extracción Estricta de Pólizas")
 
 # --- FUNCIONES ---
 def limpiar_estricto(txt):
@@ -101,7 +100,7 @@ def crear_pdf_lista(df, tecnico, col_map):
         barrio_txt = str(row[col_map['BARRIO']])
         if pd.notna(row.get('ORIGEN_REAL')):
             barrio_txt = f"[APOYO] {barrio_txt}"
-            pdf.set_text_color(200, 0, 0) # Rojo si es apoyo
+            pdf.set_text_color(200, 0, 0)
         else:
             pdf.set_text_color(0, 0, 0)
 
@@ -168,37 +167,23 @@ with tab_operacion:
             # --- SECCIÓN A: TABLA DE CUPOS EDITABLE ---
             st.divider()
             st.subheader("⚖️ Configuración de Cupos por Técnico")
-            st.info("Ajusta el 'Cupo Máximo' para cada uno. El sistema respetará este límite antes de buscar apoyo.")
             
-            # Crear DataFrame inicial para el editor
             df_topes_init = pd.DataFrame({
                 "Técnico": TECNICOS_ACTIVOS,
-                "Cupo Máximo": [35] * len(TECNICOS_ACTIVOS) # Valor inicial 35
+                "Cupo Máximo": [35] * len(TECNICOS_ACTIVOS)
             })
             
-            # Editor de datos interactivo
             edited_topes = st.data_editor(
                 df_topes_init, 
-                column_config={
-                    "Cupo Máximo": st.column_config.NumberColumn(
-                        "Tope Asignado",
-                        help="Cantidad máxima de órdenes antes de desbordar",
-                        min_value=1,
-                        max_value=200,
-                        step=1,
-                        format="%d"
-                    )
-                },
+                column_config={"Cupo Máximo": st.column_config.NumberColumn(min_value=1, max_value=200, step=1)},
                 hide_index=True,
                 use_container_width=True
             )
-            
-            # Convertir la tabla editada en un diccionario {Tecnico: Tope}
             LIMITES_INDIVIDUALES = dict(zip(edited_topes["Técnico"], edited_topes["Cupo Máximo"]))
 
             # --- SECCIÓN B: MAPEO DE COLUMNAS ---
             st.divider()
-            st.subheader("🔗 Verificar Columnas del Excel")
+            st.subheader("🔗 Mapeo de Columnas")
             
             def idx_of(keywords):
                 for i, col in enumerate(cols_excel):
@@ -224,82 +209,51 @@ with tab_operacion:
 
             if st.button("🚀 APLICAR CUPOS Y BALANCEAR", type="primary"):
                 df = df_raw.copy()
-                
-                # 1. Asignación Ideal
                 df['TECNICO_IDEAL'] = df[sel_bar].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
                 df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
                 df['ORIGEN_REAL'] = None
                 
-                # 2. Ordenar por dirección (Para que el corte sea al final de la ruta)
+                # Ordenar
                 if sel_dir:
                     df['P_TEMP'] = df[sel_dir].astype(str).apply(calcular_peso_js)
                     df = df.sort_values(by=['TECNICO_IDEAL', 'P_TEMP'])
                 
-                # 3. Lógica de "Vaso Lleno" con topes individuales
+                # Balanceo Estricto
                 conteo_inicial = df['TECNICO_IDEAL'].value_counts()
+                overs = [t for t in TECNICOS_ACTIVOS if conteo_inicial.get(t, 0) > LIMITES_INDIVIDUALES.get(t, 35)]
                 
-                # Identificar quién se pasó de SU PROPIO tope
-                overs = []
-                for tec in TECNICOS_ACTIVOS:
-                    carga = conteo_inicial.get(tec, 0)
-                    tope_personal = LIMITES_INDIVIDUALES.get(tec, 35) # Usar el tope de la tabla
-                    if carga > tope_personal:
-                        overs.append(tec)
-                
-                # Distribuir Excedentes
                 for giver in overs:
                     tope = LIMITES_INDIVIDUALES.get(giver, 35)
                     rows = df[df['TECNICO_FINAL'] == giver]
                     excedente = len(rows) - tope
-                    
                     if excedente > 0:
-                        # Tomar solo el exceso (las últimas)
                         idx_move = rows.index[-excedente:]
-                        
-                        # Buscar candidatos con espacio según SUS propios topes
                         counts_now = df['TECNICO_FINAL'].value_counts()
                         best_cand = None
                         max_space = -1
-                        
                         for cand in TECNICOS_ACTIVOS:
                             if cand == giver: continue
                             carga_cand = counts_now.get(cand, 0)
                             tope_cand = LIMITES_INDIVIDUALES.get(cand, 35)
                             espacio = tope_cand - carga_cand
-                            
-                            # Priorizar al que tenga más hueco libre
                             if espacio > 0 and espacio > max_space:
-                                max_space = espacio
-                                best_cand = cand
-                        
-                        # Si nadie tiene espacio oficial, buscar el menos cargado
+                                max_space = espacio; best_cand = cand
                         if not best_cand:
                             best_cand = sorted(TECNICOS_ACTIVOS, key=lambda x: counts_now.get(x, 0))[0]
-                        
-                        # Mover
                         df.loc[idx_move, 'TECNICO_FINAL'] = best_cand
                         df.loc[idx_move, 'ORIGEN_REAL'] = giver
 
-                # 4. Manejar Ausentes
+                # Ausentes
                 for t in df['TECNICO_FINAL'].unique():
                     if t not in TECNICOS_ACTIVOS and t != "SIN_ASIGNAR":
                         idx_abs = df[df['TECNICO_FINAL'] == t].index
-                        counts_now = df['TECNICO_FINAL'].value_counts()
-                        best_cand = None
-                        max_space = -1
-                        
-                        for cand in TECNICOS_ACTIVOS:
-                            sp = LIMITES_INDIVIDUALES.get(cand, 35) - counts_now.get(cand, 0)
-                            if sp > max_space: max_space = sp; best_cand = cand
-                        
-                        if not best_cand: # Fallback
-                             best_cand = sorted(TECNICOS_ACTIVOS, key=lambda x: counts_now.get(x, 0))[0]
-
+                        # Buscar receptor
+                        best_cand = sorted(TECNICOS_ACTIVOS, key=lambda x: df['TECNICO_FINAL'].value_counts().get(x, 0))[0]
                         df.loc[idx_abs, 'TECNICO_FINAL'] = best_cand
                         df.loc[idx_abs, 'ORIGEN_REAL'] = f"{t} (AUSENTE)"
 
                 st.session_state['df_simulado'] = df
-                st.success("✅ Asignación completada respetando los cupos individuales.")
+                st.success("✅ Asignación completada.")
 
         except Exception as e: st.error(f"Error: {e}")
 
@@ -344,26 +298,32 @@ with tab_visor:
         st.divider()
         if pdf_in:
             if st.button("✅ GENERAR PAQUETE ESTRUCTURADO", type="primary"):
-                with st.spinner("Creando carpetas y uniendo archivos..."):
+                with st.spinner("Indexando PDFs (Modo Francotirador)..."):
                     df['CARPETA'] = df['TECNICO_FINAL']
                     
-                    # 1. INDEXAR PDF (Multipunto)
+                    # 1. INDEXAR PDF (MODO FRANCOTIRADOR)
                     pdf_in.seek(0)
                     doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
                     mapa_p = {} 
                     
                     for i in range(len(doc)):
                         txt = doc[i].get_text()
-                        matches = re.findall(r'\b(\d{4,15})\b', txt)
+                        
+                        # --- EXTRACCIÓN ESTRICTA ---
+                        # Solo captura si dice Póliza, Cuenta, Medidor o Solicitud
+                        regex_estricto = r'(?:Póliza|Poliza|Cuenta|Contrato|Medidor|Solicitud)\s*(?:No\.?|:|#)?\s*(\d{4,15})'
+                        matches = re.findall(regex_estricto, txt, re.IGNORECASE)
+                        
                         sub = fitz.open()
                         sub.insert_pdf(doc, from_page=i, to_page=i)
-                        # Agregar anexo si existe
+                        # Anexos
                         if i + 1 < len(doc):
                             txt_next = doc[i+1].get_text()
                             if "Poliza" not in txt_next and "Cuenta" not in txt_next:
                                 sub.insert_pdf(doc, from_page=i+1, to_page=i+1)
                         pdf_bytes = sub.tobytes()
                         sub.close()
+                        
                         for m in matches:
                             norm = normalizar_numero(m)
                             if norm: mapa_p[norm] = pdf_bytes
@@ -371,7 +331,6 @@ with tab_visor:
                     # 2. GENERAR ZIP
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w") as zf:
-                        # AFUERA: Banco Total
                         for k_num, p_bytes in mapa_p.items():
                             if len(k_num) > 4: zf.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{k_num}.pdf", p_bytes)
                         
@@ -386,22 +345,22 @@ with tab_visor:
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
-                            # Re-ordenar por dirección para impresión
+                            # ORDENAR
                             c_dir = col_map.get('DIRECCION')
                             if c_dir:
                                 df_t['P'] = df_t[c_dir].astype(str).apply(calcular_peso_js)
                                 df_t = df_t.sort_values('P')
                             
-                            # 1. Planilla PDF
+                            # A. HOJA DE RUTA
                             pdf_h = crear_pdf_lista(df_t, tec, col_map)
                             zf.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", pdf_h)
                             
-                            # 2. Excel Individual
+                            # B. EXCEL TÉCNICO
                             out_t = io.BytesIO()
                             with pd.ExcelWriter(out_t, engine='xlsxwriter') as w: df_t.to_excel(w, index=False)
                             zf.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", out_t.getvalue())
                             
-                            # 3. PDFs Unidos y 4. Sueltos
+                            # C. BUSQUEDA Y ARMADO
                             merger = fitz.open()
                             count_merged = 0
                             
@@ -421,7 +380,7 @@ with tab_visor:
                                         break
                                 
                                 if pdf_found:
-                                    # SUELTOS
+                                    # SUELTOS (Lo que pediste)
                                     zf.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{used_key}.pdf", pdf_found)
                                     # UNIDOS
                                     with fitz.open(stream=pdf_found, filetype="pdf") as temp:
@@ -442,7 +401,7 @@ with tab_visor:
                     if reporte_faltantes:
                         st.warning(f"⚠️ Faltaron {len(reporte_faltantes)} pólizas.")
                     else:
-                        st.success("✅ ¡Perfecto! Descarga tu ZIP.")
+                        st.success("✅ ¡Perfecto!")
     else:
         st.info("Sube archivos.")
 
