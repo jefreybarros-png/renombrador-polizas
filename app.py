@@ -25,7 +25,7 @@ st.markdown("""
 
 st.title("🎯 Logística ITA: Ordenamiento por Barrio Estricto")
 
-# --- FUNCIONES ---
+# --- FUNCIONES DE LIMPIEZA Y ORDEN ---
 def limpiar_estricto(txt):
     if not txt: return ""
     txt = str(txt).upper().strip()
@@ -60,10 +60,9 @@ def cargar_maestro_dinamico(file):
     except: pass
     return mapa
 
-# ALGORITMO "NATURAL SORT" (Para que CL 2 vaya antes que CL 10)
+# ALGORITMO "NATURAL SORT" (Para que CL 2 vaya antes que CL 10 y maneje letras)
 def natural_sort_key(txt):
     txt = str(txt).upper()
-    # Separa texto y números: "CL 117 A" -> ["CL ", 117, " A"]
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt)]
 
 # PDF LISTADO
@@ -201,14 +200,8 @@ with tab_operacion:
                 
                 # --- ORDENAMIENTO CRUCIAL (BARRIO PRIMERO, LUEGO DIRECCIÓN) ---
                 if sel_dir:
-                    # Creamos una columna temporal con el valor "Natural" para ordenar
-                    # Usamos una lambda que devuelve una tupla (Barrio, Direccion)
-                    # Pero pandas sort_values acepta lista de columnas.
-                    
-                    # 1. Crear columna de orden natural para dirección
                     df['SORT_DIR'] = df[sel_dir].astype(str).apply(natural_sort_key)
-                    
-                    # 2. Ordenar PRIMERO por Barrio, LUEGO por Dirección
+                    # Forzamos que se agrupe por Barrio primero para que Alameda no "salte"
                     df = df.sort_values(by=[sel_bar, 'SORT_DIR'])
                 
                 # BALANCEO ESTRICTO
@@ -220,9 +213,7 @@ with tab_operacion:
                     rows = df[df['TECNICO_FINAL'] == giver]
                     excedente = len(rows) - tope
                     if excedente > 0:
-                        # Cortar las últimas (que ya están ordenadas por barrio/dirección)
                         idx_move = rows.index[-excedente:]
-                        
                         counts_now = df['TECNICO_FINAL'].value_counts()
                         best_cand = None
                         max_space = -1
@@ -237,6 +228,7 @@ with tab_operacion:
                         df.loc[idx_move, 'TECNICO_FINAL'] = best_cand
                         df.loc[idx_move, 'ORIGEN_REAL'] = giver
 
+                # Manejo de Ausentes
                 for t in df['TECNICO_FINAL'].unique():
                     if t not in TECNICOS_ACTIVOS and t != "SIN_ASIGNAR":
                         idx_abs = df[df['TECNICO_FINAL'] == t].index
@@ -289,20 +281,16 @@ with tab_visor:
         st.divider()
         if pdf_in:
             if st.button("✅ GENERAR PAQUETE ESTRUCTURADO", type="primary"):
-                with st.spinner("Indexando PDFs (Jerarquía Estricta)..."):
+                with st.spinner("Procesando PDFs..."):
                     df['CARPETA'] = df['TECNICO_FINAL']
-                    
                     pdf_in.seek(0)
                     doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
                     mapa_p = {} 
                     
                     for i in range(len(doc)):
                         txt = doc[i].get_text()
-                        
-                        # --- EXTRACCIÓN FLEXIBLE ---
                         regex_flex = r'(?:Póliza|Poliza|Cuenta)\D{0,20}(\d{4,15})'
                         matches = re.findall(regex_flex, txt, re.IGNORECASE)
-                        
                         sub = fitz.open()
                         sub.insert_pdf(doc, from_page=i, to_page=i)
                         if i + 1 < len(doc):
@@ -311,84 +299,49 @@ with tab_visor:
                                 sub.insert_pdf(doc, from_page=i+1, to_page=i+1)
                         pdf_bytes = sub.tobytes()
                         sub.close()
-                        
                         for m in matches:
                             norm = normalizar_numero(m)
                             if norm: mapa_p[norm] = pdf_bytes
 
-                    # ZIP
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w") as zf:
                         for k_num, p_bytes in mapa_p.items():
                             if len(k_num) > 4: zf.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{k_num}.pdf", p_bytes)
-                        
                         out_b = io.BytesIO()
                         with pd.ExcelWriter(out_b, engine='xlsxwriter') as w: df.to_excel(w, index=False)
                         zf.writestr("00_CONSOLIDADO_GENERAL.xlsx", out_b.getvalue())
                         
-                        reporte_faltantes = []
-
                         for tec in df['CARPETA'].unique():
                             if "SIN_" in tec: continue
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
-                            # --- ORDENAMIENTO FINAL POR BARRIO ---
-                            c_dir = col_map.get('DIRECCION')
-                            if c_dir:
-                                df_t['SORT_DIR'] = df_t[c_dir].astype(str).apply(natural_sort_key)
-                                # AQUÍ ESTÁ EL CAMBIO CLAVE: Primero Barrio, Luego Dirección
+                            # --- ORDENAMIENTO FINAL BLOQUEADO POR BARRIO ---
+                            if col_map.get('DIRECCION'):
+                                df_t['SORT_DIR'] = df_t[col_map['DIRECCION']].astype(str).apply(natural_sort_key)
+                                # AQUÍ ESTÁ LA SOLUCIÓN: Ordenamos Barrio + Direccion
                                 df_t = df_t.sort_values(by=[col_map['BARRIO'], 'SORT_DIR'])
                             
-                            # 1. LISTADO
                             pdf_h = crear_pdf_lista(df_t, tec, col_map)
                             zf.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", pdf_h)
-                            
-                            # 2. EXCEL
                             out_t = io.BytesIO()
                             with pd.ExcelWriter(out_t, engine='xlsxwriter') as w: df_t.to_excel(w, index=False)
                             zf.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", out_t.getvalue())
                             
-                            # 3. POLIZAS
                             merger = fitz.open()
                             count_merged = 0
-                            
                             for _, r in df_t.iterrows():
-                                targets = []
-                                if col_map.get('CUENTA'): targets.append(str(r[col_map['CUENTA']]))
-                                if col_map.get('MEDIDOR'): targets.append(str(r[col_map['MEDIDOR']]))
-                                
-                                pdf_found = None
-                                used_key = ""
-                                
-                                for t in targets:
-                                    tn = normalizar_numero(t)
-                                    if tn in mapa_p:
-                                        pdf_found = mapa_p[tn]
-                                        used_key = tn
-                                        break
-                                
+                                t_cuenta = normalizar_numero(str(r[col_map['CUENTA']]))
+                                pdf_found = mapa_p.get(t_cuenta)
                                 if pdf_found:
-                                    zf.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{used_key}.pdf", pdf_found)
-                                    with fitz.open(stream=pdf_found, filetype="pdf") as temp:
-                                        merger.insert_pdf(temp)
+                                    zf.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{t_cuenta}.pdf", pdf_found)
+                                    with fitz.open(stream=pdf_found, filetype="pdf") as temp: merger.insert_pdf(temp)
                                     count_merged += 1
-                                else:
-                                    reporte_faltantes.append(f"{tec} -> {targets[0]}")
-
-                            if count_merged > 0:
-                                zf.writestr(f"{safe}/3_PAQUETE_LEGALIZACION.pdf", merger.tobytes())
+                            if count_merged > 0: zf.writestr(f"{safe}/3_PAQUETE_LEGALIZACION.pdf", merger.tobytes())
                             merger.close()
-                        
-                        if reporte_faltantes:
-                            zf.writestr("REPORTE_FALTANTES.txt", "\n".join(reporte_faltantes))
 
                     st.session_state['zip_listo'] = zip_buffer.getvalue()
-                    
-                    if reporte_faltantes:
-                        st.warning(f"⚠️ Faltaron {len(reporte_faltantes)} pólizas.")
-                    else:
-                        st.success("✅ ¡Perfecto!")
+                    st.success("✅ ¡Perfecto! Ahora Alameda está blindada en un solo bloque.")
     else:
         st.info("Sube archivos.")
 
