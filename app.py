@@ -1,14 +1,15 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 11.0 "INFINITY FIX"                  #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 12.0 "VISIBILIDAD TOTAL"             #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: FEBRERO 2026                                                                 #
 #                                                                                       #
-#   CORRECCIÓN CRÍTICA V11.0:                                                           #
-#   - Solucionado el "Bucle Infinito" de recarga al subir el maestro.                   #
-#   - Implementación de 'Check de Estado' para evitar re-procesamientos innecesarios.   #
-#   - Mantenimiento total de módulos (Carga, Balanceo, Manual, Web, ZIP).               #
-#   - Interfaz Gráfica Premium con Logotipo y CSS avanzado.                             #
+#   MEJORA CRÍTICA V12.0:                                                               #
+#   - Ahora el Panel de Ajuste Manual (Tab 3) muestra a TODOS los técnicos activos,     #
+#     incluso si tienen 0 visitas asignadas.                                            #
+#   - Permite mover carga hacia técnicos que quedaron libres por defecto.                 #
+#   - Mantiene el blindaje contra bucles infinitos y la seguridad de sesión.            #
+#   - Mantiene intacta la generación de ZIP, Web y PDF.                                 #
 #                                                                                       #
 #########################################################################################
 
@@ -32,14 +33,14 @@ import base64
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="Logística ITA | v11.0 Stable",
+    page_title="Logística ITA | v12.0 Visible",
     layout="wide",
-    page_icon="🚛",
+    page_icon="🚚",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
-        'About': "Sistema Logístico ITA - Versión 11.0 Estable"
+        'About': "Sistema Logístico ITA - Versión 12.0 Visibilidad Total"
     }
 )
 
@@ -480,10 +481,6 @@ with st.sidebar:
     st.markdown("---")
     
     # 3. CONTROL DE ASISTENCIA BLINDADO
-    # Lógica de Seguridad:
-    # A) Debe ser Administrador.
-    # B) Debe estar Logueado (admin_logged_in = True).
-    # C) Debe haber cargado la base de datos (mapa_actual).
     
     if modo_acceso == "⚙️ ADMINISTRADOR":
         if st.session_state.get('admin_logged_in', False):
@@ -524,10 +521,10 @@ with st.sidebar:
             """, unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión v11.0")
+        st.info("Bienvenido al Portal de Autogestión v12.0")
 
     st.markdown("---")
-    st.caption("Sistema Logístico Seguro v11.0")
+    st.caption("Sistema Logístico Seguro v12.0")
 
 # =======================================================================================
 # SECCIÓN 6: VISTA DEL TÉCNICO (PORTAL DE DESCARGAS)
@@ -642,39 +639,26 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             
             # --- LÓGICA DE CARGA ÚNICA (EVITA BUCLE) ---
             if f_maestro:
-                # Verificamos si este archivo YA fue procesado en esta sesión para no hacerlo 2 veces
                 if st.session_state.get('ultimo_archivo_procesado') != f_maestro.name:
                     with st.spinner("Indexando base de datos y limpiando memoria anterior..."):
-                        # 1. Cargar nuevo mapa
                         nuevo_mapa, nuevos_telefonos = cargar_maestro_dinamico(f_maestro)
                         
                         if nuevo_mapa:
                             st.session_state['mapa_actual'] = nuevo_mapa
                             st.session_state['mapa_telefonos'] = nuevos_telefonos
-                            
-                            # 2. LIMPIEZA PROFUNDA (Esto garantiza el dinamismo)
-                            st.session_state['df_simulado'] = None # Borrar rutas viejas
-                            st.session_state['tecnicos_activos_manual'] = [] # Resetear asistencia
-                            
-                            # 3. MARCAR COMO PROCESADO
+                            st.session_state['df_simulado'] = None 
+                            st.session_state['tecnicos_activos_manual'] = []
                             st.session_state['ultimo_archivo_procesado'] = f_maestro.name
                             
                             st.success(f"✅ Maestro cargado con éxito: {len(nuevo_mapa)} barrios detectados.")
-                            st.markdown("""
-                                <div class='unlocked-msg'>
-                                    🔄 <b>SISTEMA ACTUALIZADO</b><br>
-                                    Recargando interfaz para aplicar los nuevos nombres...
-                                </div>
-                            """, unsafe_allow_html=True)
+                            st.markdown("<div class='unlocked-msg'>🔄 SISTEMA ACTUALIZADO<br>Recargando interfaz...</div>", unsafe_allow_html=True)
                             time.sleep(1.5)
-                            st.rerun() # RECARGA TOTAL DE LA PÁGINA PARA ACTUALIZAR SIDEBAR
+                            st.rerun() 
                         else:
                             st.error("❌ Error en el archivo: No se encontraron columnas válidas.")
                 else:
-                    # Si ya estaba procesado, solo mostramos el estado sin reiniciar
                     st.info(f"Archivo activo: {f_maestro.name}")
             
-            # Visor de estado actual
             if st.session_state['mapa_actual']:
                 st.write(f"**Total Barrios:** {len(st.session_state['mapa_actual'])}")
                 st.write(f"**Total Técnicos:** {len(set(st.session_state['mapa_actual'].values()))}")
@@ -696,7 +680,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 st.markdown("**2. Ruta (Excel)**")
                 up_xls = st.file_uploader("Archivo Excel Ruta", type=["xlsx", "csv"])
             
-            # Determinar Técnicos Activos (Respetando Asistencia)
             if 'tecnicos_activos_manual' in st.session_state and st.session_state['tecnicos_activos_manual']:
                 tecnicos_hoy = st.session_state['tecnicos_activos_manual']
             elif st.session_state['mapa_actual']:
@@ -712,12 +695,10 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 st.divider()
                 st.markdown("#### Parámetros de Balanceo")
                 
-                # Configuración Cupos
                 df_cup = pd.DataFrame({"Técnico": tecnicos_hoy, "Cupo": [35]*len(tecnicos_hoy)})
                 ed_cup = st.data_editor(df_cup, column_config={"Cupo": st.column_config.NumberColumn(min_value=1)}, hide_index=True, use_container_width=True)
                 LIMITES = dict(zip(ed_cup["Técnico"], ed_cup["Cupo"]))
                 
-                # Configuración Mapeo
                 def ix(k): 
                     for i,c in enumerate(cols): 
                         for x in k: 
@@ -733,44 +714,32 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 cmap = {'BARRIO': sb, 'DIRECCION': sd, 'CUENTA': sc, 'MEDIDOR': sm if sm!="NO TIENE" else None, 'CLIENTE': sl if sl!="NO TIENE" else None}
                 
                 if st.button("🚀 EJECUTAR BALANCEO AUTOMÁTICO", type="primary"):
-                    # Auto-scan
                     if up_pdf and not st.session_state['mapa_polizas_cargado']:
                         st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
                     
                     df_proc = df.copy()
-                    
-                    # 1. Asignar Ideal
                     df_proc['TECNICO_IDEAL'] = df_proc[sb].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
-                    
-                    # 2. Manejo de Inactivos
-                    # Si el tecnico ideal NO esta en la lista de 'tecnicos_hoy', se marca como VACANTE
                     df_proc['TECNICO_FINAL'] = df_proc['TECNICO_IDEAL'].apply(lambda x: x if x in tecnicos_hoy else "VACANTE")
                     df_proc['ORIGEN_REAL'] = None
-                    
-                    # Marcar vacantes
                     msk_vac = df_proc['TECNICO_FINAL'] == "VACANTE"
                     df_proc.loc[msk_vac, 'ORIGEN_REAL'] = df_proc.loc[msk_vac, 'TECNICO_IDEAL']
                     
-                    # 3. Ordenar
                     df_proc['S'] = df_proc[sd].astype(str).apply(natural_sort_key)
                     df_proc = df_proc.sort_values(by=[sb, 'S'])
                     
-                    # 4. Repartir Vacantes (A quien menos tiene)
-                    vacantes = df_proc[df_proc['TECNICO_FINAL'] == "VACANTE"]
-                    for idx_v, _ in vacantes.iterrows():
+                    vacs = df_proc[df_proc['TECNICO_FINAL'] == "VACANTE"]
+                    for idx_v, _ in vacs.iterrows():
                         cnt_live = df_proc[df_proc['TECNICO_FINAL'].isin(tecnicos_hoy)]['TECNICO_FINAL'].value_counts()
                         for t in tecnicos_hoy:
                             if t not in cnt_live: cnt_live[t] = 0
                         mejor = cnt_live.idxmin()
                         df_proc.at[idx_v, 'TECNICO_FINAL'] = mejor
                     
-                    # 5. Balancear Cupos
                     cnt = df_proc['TECNICO_FINAL'].value_counts()
                     for tech in [t for t in tecnicos_hoy if cnt.get(t,0) > LIMITES.get(t,35)]:
                         tope = LIMITES.get(tech, 35)
                         rows = df_proc[df_proc['TECNICO_FINAL'] == tech]
                         exc = len(rows) - tope
-                        
                         if exc > 0:
                             mov = rows.index[-exc:]
                             now = df_proc['TECNICO_FINAL'].value_counts()
@@ -787,7 +756,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             elif not tecnicos_hoy and st.session_state['mapa_actual']:
                 st.error("⚠️ No hay técnicos activos. Revisa la barra lateral.")
 
-        # --- TAB 3: AJUSTE MANUAL ---
+        # --- TAB 3: AJUSTE MANUAL (VISIBILIDAD TOTAL) ---
         with tab3:
             st.markdown("### 🛠️ Corrección Fina")
             if st.session_state['df_simulado'] is not None:
@@ -795,7 +764,11 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 cbar = st.session_state['col_map_final']['BARRIO']
                 activos_con_carga = sorted(df['TECNICO_FINAL'].unique())
                 
-                destinos_posibles = st.session_state.get('tecnicos_activos_manual', [])
+                # LISTA COMPLETA DE ACTIVOS PARA VISUALIZACIÓN
+                if 'tecnicos_activos_manual' in st.session_state and st.session_state['tecnicos_activos_manual']:
+                    todos_activos_hoy = sorted(st.session_state['tecnicos_activos_manual'])
+                else:
+                    todos_activos_hoy = sorted(list(set(st.session_state['mapa_actual'].values())))
 
                 c1, c2, c3, c4 = st.columns([1.5, 1.5, 1.5, 1])
                 with c1: org = st.selectbox("De:", ["-"]+list(activos_con_carga))
@@ -804,7 +777,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         brs = df[df['TECNICO_FINAL']==org][cbar].value_counts()
                         bar = st.selectbox("Barrio:", [f"{k} ({v})" for k,v in brs.items()])
                     else: bar=None
-                with c3: dst = st.selectbox("Para:", ["-"]+destinos_posibles)
+                with c3: dst = st.selectbox("Para:", ["-"]+todos_activos_hoy) # Permitir mover a CUALQUIERA
                 with c4:
                     st.write("")
                     if st.button("Mover"):
@@ -815,18 +788,31 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             df.loc[msk, 'ORIGEN_REAL'] = org
                             st.session_state['df_simulado'] = df; st.rerun()
                 
+                # GRID DE VISUALIZACIÓN (INCLUYE VACÍOS)
                 cls = st.columns(2)
-                for i, t in enumerate(activos_con_carga):
+                for i, t in enumerate(todos_activos_hoy):
                     with cls[i%2]:
                         s = df[df['TECNICO_FINAL']==t]
-                        r = s.groupby([cbar, 'ORIGEN_REAL'], dropna=False).size().reset_index(name='N')
-                        r['B'] = r.apply(lambda x: f"⚠️ {x[cbar]} (APOYO)" if pd.notna(x['ORIGEN_REAL']) else x[cbar], axis=1)
-                        with st.expander(f"👷 {t} ({len(s)})"): st.dataframe(r[['B','N']], hide_index=True, use_container_width=True)
+                        cantidad = len(s)
+                        
+                        # Título dinámico
+                        if cantidad == 0:
+                            titulo_card = f"🟢 {t} (LIBRE - 0 Visitas)"
+                        else:
+                            titulo_card = f"👷 {t} ({cantidad} Visitas)"
+                            
+                        with st.expander(titulo_card, expanded=(cantidad > 0)):
+                            if cantidad > 0:
+                                r = s.groupby([cbar, 'ORIGEN_REAL'], dropna=False).size().reset_index(name='N')
+                                r['B'] = r.apply(lambda x: f"⚠️ {x[cbar]}" if pd.notna(x['ORIGEN_REAL']) else x[cbar], axis=1)
+                                st.dataframe(r[['B','N']], hide_index=True, use_container_width=True)
+                            else:
+                                st.caption("Sin carga asignada. Disponible para recibir barrios.")
             else: st.info("Sin datos.")
 
         # --- TAB 4: PUBLICAR ---
         with tab4:
-            st.markdown("### 🌍 Distribución Final")
+            st.markdown("### 🌍 Distribución")
             if st.session_state['df_simulado'] is not None:
                 dff = st.session_state['df_simulado']
                 cmf = st.session_state['col_map_final']
