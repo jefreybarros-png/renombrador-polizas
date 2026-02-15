@@ -11,7 +11,7 @@ import math
 import numpy as np
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Estructurada V131", layout="wide")
+st.set_page_config(page_title="Logística Cupos V134", layout="wide")
 
 st.markdown("""
     <style>
@@ -20,10 +20,11 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: #262730; color: white; border-radius: 5px; border: 1px solid #41444C; }
     .stTabs [aria-selected="true"] { background-color: #004080; color: white; border: 2px solid #00A8E8; }
     div[data-testid="stDataFrame"] { background-color: #262730; border-radius: 10px; }
+    .highlight { color: #FFA500; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Lógica Híbrida + PDF Estructurado")
+st.title("🎯 Logística ITA: Cupos Personalizados por Técnico")
 
 # --- FUNCIONES ---
 def limpiar_estricto(txt):
@@ -100,7 +101,7 @@ def crear_pdf_lista(df, tecnico, col_map):
         barrio_txt = str(row[col_map['BARRIO']])
         if pd.notna(row.get('ORIGEN_REAL')):
             barrio_txt = f"[APOYO] {barrio_txt}"
-            pdf.set_text_color(200, 0, 0)
+            pdf.set_text_color(200, 0, 0) # Rojo si es apoyo
         else:
             pdf.set_text_color(0, 0, 0)
 
@@ -133,7 +134,7 @@ if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
 if 'col_map' not in st.session_state: st.session_state['col_map'] = {}
 
 # --- TABS ---
-tab_operacion, tab_visor, tab_config = st.tabs(["🚀 Carga y Balanceo", "🌍 Ajuste Manual (Visor)", "⚙️ Operarios"])
+tab_operacion, tab_visor, tab_config = st.tabs(["🚀 Carga y Cupos", "🌍 Visor Manual", "⚙️ Operarios"])
 
 # --- TAB 3: CONFIG ---
 with tab_config:
@@ -159,15 +160,45 @@ with tab_operacion:
     with c2: excel_in = st.file_uploader("2. Excel Ruta", type=["xlsx", "csv"])
     
     if excel_in and lista_tecnicos:
-        # LECTURA PRELIMINAR PARA MAPEO
         try:
             if excel_in.name.endswith('.csv'): df_raw = pd.read_csv(excel_in, sep=None, engine='python', encoding='utf-8-sig')
             else: df_raw = pd.read_excel(excel_in)
             cols_excel = list(df_raw.columns)
             
+            # --- SECCIÓN A: TABLA DE CUPOS EDITABLE ---
             st.divider()
-            st.subheader("🔗 Mapeo de Columnas")
-            st.info("Confirma las columnas para evitar errores de datos cruzados.")
+            st.subheader("⚖️ Configuración de Cupos por Técnico")
+            st.info("Ajusta el 'Cupo Máximo' para cada uno. El sistema respetará este límite antes de buscar apoyo.")
+            
+            # Crear DataFrame inicial para el editor
+            df_topes_init = pd.DataFrame({
+                "Técnico": TECNICOS_ACTIVOS,
+                "Cupo Máximo": [35] * len(TECNICOS_ACTIVOS) # Valor inicial 35
+            })
+            
+            # Editor de datos interactivo
+            edited_topes = st.data_editor(
+                df_topes_init, 
+                column_config={
+                    "Cupo Máximo": st.column_config.NumberColumn(
+                        "Tope Asignado",
+                        help="Cantidad máxima de órdenes antes de desbordar",
+                        min_value=1,
+                        max_value=200,
+                        step=1,
+                        format="%d"
+                    )
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            # Convertir la tabla editada en un diccionario {Tecnico: Tope}
+            LIMITES_INDIVIDUALES = dict(zip(edited_topes["Técnico"], edited_topes["Cupo Máximo"]))
+
+            # --- SECCIÓN B: MAPEO DE COLUMNAS ---
+            st.divider()
+            st.subheader("🔗 Verificar Columnas del Excel")
             
             def idx_of(keywords):
                 for i, col in enumerate(cols_excel):
@@ -177,63 +208,100 @@ with tab_operacion:
 
             cm1, cm2, cm3 = st.columns(3)
             with cm1:
-                sel_cta = st.selectbox("Columna CUENTA/PÓLIZA:", cols_excel, index=idx_of(['CUENTA', 'POLIZA', 'CONTRATO']))
-                sel_bar = st.selectbox("Columna BARRIO:", cols_excel, index=idx_of(['BARRIO', 'SECTOR', 'URB']))
+                sel_cta = st.selectbox("CUENTA/PÓLIZA:", cols_excel, index=idx_of(['CUENTA', 'POLIZA']))
+                sel_bar = st.selectbox("BARRIO:", cols_excel, index=idx_of(['BARRIO', 'SECTOR']))
             with cm2:
-                sel_dir = st.selectbox("Columna DIRECCIÓN:", cols_excel, index=idx_of(['DIRECCION', 'DIR', 'UBIC']))
-                sel_med = st.selectbox("Columna MEDIDOR (Opcional):", ["NO TIENE"] + cols_excel, index=idx_of(['MEDIDOR', 'SERIE']) + 1)
+                sel_dir = st.selectbox("DIRECCIÓN:", cols_excel, index=idx_of(['DIRECCION', 'DIR']))
+                sel_med = st.selectbox("MEDIDOR:", ["NO TIENE"] + cols_excel, index=idx_of(['MEDIDOR', 'SERIE']) + 1)
             with cm3:
-                sel_cli = st.selectbox("Columna CLIENTE (Opcional):", ["NO TIENE"] + cols_excel, index=idx_of(['CLIENTE', 'NOMBRE', 'SUSCRIPTOR']) + 1)
+                sel_cli = st.selectbox("CLIENTE:", ["NO TIENE"] + cols_excel, index=idx_of(['CLIENTE', 'NOMBRE']) + 1)
 
-            col_map_user = {
+            st.session_state['col_map'] = {
                 'CUENTA': sel_cta, 'BARRIO': sel_bar, 'DIRECCION': sel_dir,
                 'MEDIDOR': sel_med if sel_med != "NO TIENE" else None,
                 'CLIENTE': sel_cli if sel_cli != "NO TIENE" else None
             }
-            st.session_state['col_map'] = col_map_user
 
-            if st.button("🚀 EJECUTAR BALANCEO AUTOMÁTICO", type="primary"):
+            if st.button("🚀 APLICAR CUPOS Y BALANCEAR", type="primary"):
                 df = df_raw.copy()
                 
-                # 1. Asignación
+                # 1. Asignación Ideal
                 df['TECNICO_IDEAL'] = df[sel_bar].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
                 df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
                 df['ORIGEN_REAL'] = None
                 
-                # 2. Balanceo Cascada
-                TOPE = math.ceil(len(df)/len(TECNICOS_ACTIVOS)) if TECNICOS_ACTIVOS else 35
-                conteo = df['TECNICO_IDEAL'].value_counts()
-                overs = [t for t in TECNICOS_ACTIVOS if conteo.get(t, 0) > TOPE]
+                # 2. Ordenar por dirección (Para que el corte sea al final de la ruta)
+                if sel_dir:
+                    df['P_TEMP'] = df[sel_dir].astype(str).apply(calcular_peso_js)
+                    df = df.sort_values(by=['TECNICO_IDEAL', 'P_TEMP'])
                 
+                # 3. Lógica de "Vaso Lleno" con topes individuales
+                conteo_inicial = df['TECNICO_IDEAL'].value_counts()
+                
+                # Identificar quién se pasó de SU PROPIO tope
+                overs = []
+                for tec in TECNICOS_ACTIVOS:
+                    carga = conteo_inicial.get(tec, 0)
+                    tope_personal = LIMITES_INDIVIDUALES.get(tec, 35) # Usar el tope de la tabla
+                    if carga > tope_personal:
+                        overs.append(tec)
+                
+                # Distribuir Excedentes
                 for giver in overs:
+                    tope = LIMITES_INDIVIDUALES.get(giver, 35)
                     rows = df[df['TECNICO_FINAL'] == giver]
-                    excedente = len(rows) - TOPE
+                    excedente = len(rows) - tope
+                    
                     if excedente > 0:
+                        # Tomar solo el exceso (las últimas)
                         idx_move = rows.index[-excedente:]
+                        
+                        # Buscar candidatos con espacio según SUS propios topes
                         counts_now = df['TECNICO_FINAL'].value_counts()
-                        candidates = [t for t in TECNICOS_ACTIVOS if t != giver and counts_now.get(t, 0) < TOPE]
-                        if candidates:
-                            receiver = sorted(candidates, key=lambda x: counts_now.get(x, 0))[0]
-                            df.loc[idx_move, 'TECNICO_FINAL'] = receiver
-                            df.loc[idx_move, 'ORIGEN_REAL'] = giver
+                        best_cand = None
+                        max_space = -1
+                        
+                        for cand in TECNICOS_ACTIVOS:
+                            if cand == giver: continue
+                            carga_cand = counts_now.get(cand, 0)
+                            tope_cand = LIMITES_INDIVIDUALES.get(cand, 35)
+                            espacio = tope_cand - carga_cand
+                            
+                            # Priorizar al que tenga más hueco libre
+                            if espacio > 0 and espacio > max_space:
+                                max_space = espacio
+                                best_cand = cand
+                        
+                        # Si nadie tiene espacio oficial, buscar el menos cargado
+                        if not best_cand:
+                            best_cand = sorted(TECNICOS_ACTIVOS, key=lambda x: counts_now.get(x, 0))[0]
+                        
+                        # Mover
+                        df.loc[idx_move, 'TECNICO_FINAL'] = best_cand
+                        df.loc[idx_move, 'ORIGEN_REAL'] = giver
 
-                # Ausentes
+                # 4. Manejar Ausentes
                 for t in df['TECNICO_FINAL'].unique():
                     if t not in TECNICOS_ACTIVOS and t != "SIN_ASIGNAR":
-                        idx_absent = df[df['TECNICO_FINAL'] == t].index
+                        idx_abs = df[df['TECNICO_FINAL'] == t].index
                         counts_now = df['TECNICO_FINAL'].value_counts()
-                        candidates = [c for c in TECNICOS_ACTIVOS if counts_now.get(c, 0) < TOPE + 15]
-                        if candidates:
-                            receiver = sorted(candidates, key=lambda x: counts_now.get(x, 0))[0]
-                            df.loc[idx_absent, 'TECNICO_FINAL'] = receiver
-                            df.loc[idx_absent, 'ORIGEN_REAL'] = f"{t} (AUSENTE)"
-                        else:
-                            df.loc[idx_absent, 'TECNICO_FINAL'] = "SIN_GESTOR_ACTIVO"
+                        best_cand = None
+                        max_space = -1
+                        
+                        for cand in TECNICOS_ACTIVOS:
+                            sp = LIMITES_INDIVIDUALES.get(cand, 35) - counts_now.get(cand, 0)
+                            if sp > max_space: max_space = sp; best_cand = cand
+                        
+                        if not best_cand: # Fallback
+                             best_cand = sorted(TECNICOS_ACTIVOS, key=lambda x: counts_now.get(x, 0))[0]
+
+                        df.loc[idx_abs, 'TECNICO_FINAL'] = best_cand
+                        df.loc[idx_abs, 'ORIGEN_REAL'] = f"{t} (AUSENTE)"
 
                 st.session_state['df_simulado'] = df
-                st.success("✅ Balanceo completado. Ve a la Pestaña 2 para ajustar o descargar.")
+                st.success("✅ Asignación completada respetando los cupos individuales.")
 
-        except Exception as e: st.error(f"Error leyendo archivo: {e}")
+        except Exception as e: st.error(f"Error: {e}")
 
 # --- TAB 2: VISOR ---
 with tab_visor:
@@ -242,7 +310,7 @@ with tab_visor:
         col_map = st.session_state['col_map']
         c_barrio = col_map['BARRIO']
         
-        # MOVER
+        # MOVER MANUAL
         c1, c2, c3, c4 = st.columns([1.5, 1.5, 1.5, 1])
         with c1: org = st.selectbox("Origen:", ["-"] + sorted(df['TECNICO_FINAL'].unique()))
         with c2: 
@@ -275,11 +343,11 @@ with tab_visor:
 
         st.divider()
         if pdf_in:
-            if st.button("✅ GENERAR PAQUETE COMPLETO", type="primary"):
-                with st.spinner("Indexando PDFs y creando estructura..."):
+            if st.button("✅ GENERAR PAQUETE ESTRUCTURADO", type="primary"):
+                with st.spinner("Creando carpetas y uniendo archivos..."):
                     df['CARPETA'] = df['TECNICO_FINAL']
                     
-                    # 1. INDEXAR PDF
+                    # 1. INDEXAR PDF (Multipunto)
                     pdf_in.seek(0)
                     doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
                     mapa_p = {} 
@@ -287,16 +355,15 @@ with tab_visor:
                     for i in range(len(doc)):
                         txt = doc[i].get_text()
                         matches = re.findall(r'\b(\d{4,15})\b', txt)
-                        
                         sub = fitz.open()
                         sub.insert_pdf(doc, from_page=i, to_page=i)
+                        # Agregar anexo si existe
                         if i + 1 < len(doc):
                             txt_next = doc[i+1].get_text()
                             if "Poliza" not in txt_next and "Cuenta" not in txt_next:
                                 sub.insert_pdf(doc, from_page=i+1, to_page=i+1)
                         pdf_bytes = sub.tobytes()
                         sub.close()
-                        
                         for m in matches:
                             norm = normalizar_numero(m)
                             if norm: mapa_p[norm] = pdf_bytes
@@ -304,7 +371,7 @@ with tab_visor:
                     # 2. GENERAR ZIP
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w") as zf:
-                        # CARPETA AFUERA (BANCO TOTAL)
+                        # AFUERA: Banco Total
                         for k_num, p_bytes in mapa_p.items():
                             if len(k_num) > 4: zf.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{k_num}.pdf", p_bytes)
                         
@@ -319,23 +386,22 @@ with tab_visor:
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
-                            # ORDENAR
+                            # Re-ordenar por dirección para impresión
                             c_dir = col_map.get('DIRECCION')
                             if c_dir:
                                 df_t['P'] = df_t[c_dir].astype(str).apply(calcular_peso_js)
                                 df_t = df_t.sort_values('P')
                             
-                            # ARCHIVOS DENTRO DEL TÉCNICO
-                            # 1. LISTADO
+                            # 1. Planilla PDF
                             pdf_h = crear_pdf_lista(df_t, tec, col_map)
                             zf.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", pdf_h)
                             
-                            # 2. EXCEL
+                            # 2. Excel Individual
                             out_t = io.BytesIO()
                             with pd.ExcelWriter(out_t, engine='xlsxwriter') as w: df_t.to_excel(w, index=False)
                             zf.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", out_t.getvalue())
                             
-                            # 3. POLIZAS UNIDAS Y 4. INDIVIDUALES
+                            # 3. PDFs Unidos y 4. Sueltos
                             merger = fitz.open()
                             count_merged = 0
                             
@@ -355,10 +421,9 @@ with tab_visor:
                                         break
                                 
                                 if pdf_found:
-                                    # GUARDAR INDIVIDUAL ADENTRO
+                                    # SUELTOS
                                     zf.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{used_key}.pdf", pdf_found)
-                                    
-                                    # AGREGAR AL UNIFICADO
+                                    # UNIDOS
                                     with fitz.open(stream=pdf_found, filetype="pdf") as temp:
                                         merger.insert_pdf(temp)
                                     count_merged += 1
@@ -377,7 +442,7 @@ with tab_visor:
                     if reporte_faltantes:
                         st.warning(f"⚠️ Faltaron {len(reporte_faltantes)} pólizas.")
                     else:
-                        st.success("✅ ¡Perfecto!")
+                        st.success("✅ ¡Perfecto! Descarga tu ZIP.")
     else:
         st.info("Sube archivos.")
 
