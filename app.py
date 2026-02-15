@@ -8,10 +8,10 @@ import unicodedata
 from fpdf import FPDF
 from datetime import datetime
 import math
-import numpy as np
+import numpy as np # Necesario para distancias
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Cascada V124", layout="wide")
+st.set_page_config(page_title="Logística Corregida V125", layout="wide")
 
 st.markdown("""
     <style>
@@ -24,10 +24,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Desborde por Proximidad")
+st.title("🎯 Logística ITA: Desborde por Proximidad (Corregido)")
 
 # --- 1. DATOS GEOGRÁFICOS BÁSICOS (BARRANQUILLA) ---
-# Usaremos esto para calcular cercanía si no hay datos previos
 COORD_BARRIOS = {
     "VILLA SANTOS": (11.01, -74.82), "RIOMAR": (11.02, -74.83), "FLORES": (11.04, -74.85),
     "PRADO": (10.99, -74.79), "SILENCIO": (10.97, -74.81), "BOSQUE": (10.94, -74.82),
@@ -134,7 +133,7 @@ def crear_pdf(df, tecnico, col_map):
     for _, row in df.iterrows():
         # Lógica visual para el PDF
         barrio_val = str(row[col_map['BARRIO']])
-        if row.get('ORIGEN_REAL'): # Si fue movido
+        if pd.notna(row.get('ORIGEN_REAL')): # Si fue movido
             barrio_val = f"{barrio_val} (APOYO {row['ORIGEN_REAL']})"
             
         for h, w in zip(headers, widths):
@@ -150,30 +149,31 @@ if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = {}
 if 'df_simulado' not in st.session_state: st.session_state['df_simulado'] = None
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
 
-# --- UI TABS ---
-tab1, tab2, tab3 = st.tabs(["🚀 Operación Diaria", "🌍 Gestor de Zonas (Visual)", "⚙️ Cargar Operarios"])
+# --- UI TABS (NOMBRADAS EXPLICITAMENTE) ---
+tab_operacion, tab_visor, tab_config = st.tabs(["🚀 Operación Diaria", "🌍 Gestor de Zonas (Visual)", "⚙️ Cargar Operarios"])
 
 # --- TAB 3: MAESTRO ---
-with tab3:
+with tab_config:
     st.header("1. Cargar Base de Operarios (Obligatorio)")
     maestro_file = st.file_uploader("Subir Excel (Barrio | Técnico)", type=["xlsx", "csv"])
     if maestro_file:
         st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_file)
         st.success(f"✅ Cargados {len(st.session_state['mapa_actual'])} barrios.")
 
-# --- TAB 1: CARGA ---
-with tab1:
-    # Sidebar dentro del tab lógico
-    lista_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
-    st.sidebar.header("👷 Cuadrilla Activa")
-    TECNICOS_ACTIVOS = []
-    if lista_tecnicos:
-        all_on = st.sidebar.checkbox("Todos", value=True)
-        for tec in lista_tecnicos:
-            if st.sidebar.toggle(f"{tec}", value=all_on): TECNICOS_ACTIVOS.append(tec)
-    else:
-        st.sidebar.warning("Carga el maestro en Pestaña 3")
+# --- SIDEBAR (DENTRO DE LA LÓGICA) ---
+lista_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
+TECNICOS_ACTIVOS = []
 
+st.sidebar.header("👷 Cuadrilla Activa")
+if lista_tecnicos:
+    all_on = st.sidebar.checkbox("Seleccionar Todos", value=True)
+    for tec in lista_tecnicos:
+        if st.sidebar.toggle(f"{tec}", value=all_on): TECNICOS_ACTIVOS.append(tec)
+else:
+    st.sidebar.warning("⚠️ Carga el maestro en la Pestaña 3 para ver los técnicos.")
+
+# --- TAB 1: CARGA ---
+with tab_operacion:
     c1, c2 = st.columns(2)
     with c1: pdf_in = st.file_uploader("1. PDF Pólizas", type="pdf")
     with c2: excel_in = st.file_uploader("2. Excel Ruta", type=["xlsx", "csv"])
@@ -210,7 +210,7 @@ with tab1:
                     conteos = df['TECNICO_IDEAL'].value_counts()
                     overs = []
                     
-                    # Llenar huecos
+                    # Identificar quién se pasa del tope
                     for tec in TECNICOS_ACTIVOS:
                         carga = conteos.get(tec, 0)
                         if carga > TOPE:
@@ -223,8 +223,7 @@ with tab1:
                         excedente = len(orders) - TOPE
                         
                         if excedente > 0:
-                            # Tomar las últimas 'excedente' órdenes (o podrías usar lógica de lejanía)
-                            # Aquí tomamos las últimas de la lista para simplificar "bloque"
+                            # Tomar las últimas 'excedente' órdenes
                             indices_mover = orders.index[-excedente:]
                             
                             # Buscar Receptor más cercano
@@ -237,8 +236,6 @@ with tab1:
                                 carga_cand = len(df[df['TECNICO_FINAL'] == cand])
                                 if carga_cand < TOPE and cand != giver:
                                     dist = distancia(giver_pos, centroides.get(cand, (10.96, -74.80)))
-                                    # Penalizar distancia si el candidato está casi lleno para preferir vacíos? 
-                                    # No, el usuario quiere llenar.
                                     if dist < min_dist:
                                         min_dist = dist
                                         best_receiver = cand
@@ -247,10 +244,7 @@ with tab1:
                                 # Mover
                                 df.loc[indices_mover, 'TECNICO_FINAL'] = best_receiver
                                 df.loc[indices_mover, 'ORIGEN_REAL'] = giver # Marcamos de donde vino
-                            else:
-                                # Si no hay nadie libre cerca, buscar cualquiera libre
-                                pass 
-
+                            
                     # Manejar Ausentes (Técnicos inactivos)
                     # Mover TODO su trabajo al más cercano
                     for tec_ideal in df['TECNICO_IDEAL'].unique():
@@ -282,12 +276,12 @@ with tab1:
                     st.session_state['col_med'] = find(['MEDIDOR', 'SERIE'])
                     st.session_state['col_cli'] = find(['CLIENTE', 'NOMBRE'])
                     
-                    st.success("✅ Distribución en Cascada completada. Revisa el visor.")
+                    st.success("✅ Distribución completada. Revisa la Pestaña Visor.")
                 else: st.error("Error columnas.")
             except Exception as e: st.error(f"Error: {e}")
 
 # --- TAB 2: VISOR ---
-with tab_zonas:
+with tab_visor:  # <--- AQUÍ ESTABA EL ERROR, AHORA CORREGIDO
     if st.session_state['df_simulado'] is not None:
         df = st.session_state['df_simulado']
         c_barrio = st.session_state['col_barrio']
@@ -345,8 +339,7 @@ with tab_zonas:
                 df['CARPETA'] = df['TECNICO_FINAL']
                 pdf_in.seek(0); doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
                 mapa_p = {}
-                # ... (Lógica de PDF igual a versiones anteriores) ...
-                # Se omite por brevedad del bloque, usar lógica V123 para el final
+                
                 i = 0
                 while i < len(doc):
                     txt = doc[i].get_text()
@@ -365,6 +358,11 @@ with tab_zonas:
                 
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w") as zf:
+                    # Excel
+                    out_b = io.BytesIO()
+                    with pd.ExcelWriter(out_b, engine='xlsxwriter') as w: df.to_excel(w, index=False)
+                    zf.writestr("01_CONSOLIDADO.xlsx", out_b.getvalue())
+
                     c_map = {'CUENTA': st.session_state['col_cta'], 'MEDIDOR': st.session_state['col_med'], 'BARRIO': c_barrio, 'DIRECCION': st.session_state['col_dir'], 'CLIENTE': st.session_state['col_cli']}
                     for tec in df['CARPETA'].unique():
                         if "SIN_" in tec: continue
@@ -375,10 +373,24 @@ with tab_zonas:
                             df_t = df_t.sort_values('P')
                         pdf_h = crear_pdf(df_t, tec, c_map)
                         zf.writestr(f"{safe}/1_LISTADO.pdf", pdf_h)
-                        # ... resto de archivos ...
+                        
+                        m = fitz.open()
+                        f = False
+                        for _, r in df_t.iterrows():
+                            c = str(r[st.session_state['col_cta']])
+                            d = None
+                            for k,v in mapa_p.items():
+                                if k in c: d=v; break
+                            if d:
+                                f=True
+                                zf.writestr(f"{safe}/POLIZAS/Poliza_{c}.pdf", d)
+                                with fitz.open(stream=d, filetype="pdf") as t: m.insert_pdf(t)
+                        if f: zf.writestr(f"{safe}/3_IMPRESION.pdf", m.tobytes())
+                        m.close()
                 
                 st.session_state['zip_listo'] = zip_buffer.getvalue()
                 st.success("Listo")
 
 if st.session_state['zip_listo']:
+    st.sidebar.divider()
     st.sidebar.download_button("⬇️ DESCARGAR", st.session_state['zip_listo'], "Logistica.zip")
