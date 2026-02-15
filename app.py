@@ -11,7 +11,7 @@ import math
 import numpy as np
 
 # --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Logística Sincronizada V127", layout="wide")
+st.set_page_config(page_title="Logística Estructurada V128", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,21 +23,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 Logística ITA: Planillas y PDFs en Orden Espejo")
+st.title("🎯 Logística ITA: Arquitectura de Archivos Perfecta")
 
-# --- 1. ESTADO INICIAL ---
-MAESTRA_GENERICA = {
-    "BOYACA": "TECNICO 1", "REBOLO": "TECNICO 1", "SAN JOSE": "TECNICO 1", 
-    "VILLA SANTOS": "TECNICO 2", "RIOMAR": "TECNICO 2", "LAS FLORES": "TECNICO 2",
-    "EL SILENCIO": "TECNICO 3", "LA CUMBRE": "TECNICO 3", "LOS NOGALES": "TECNICO 3",
-    "EL PRADO": "TECNICO 4", "BOSTON": "TECNICO 4", "BARRIO ABAJO": "TECNICO 4",
-    "EL BOSQUE": "TECNICO 5", "LA PRADERA": "TECNICO 5", "LOS OLIVOS": "TECNICO 5",
-    "LA PAZ": "TECNICO 6", "CARIBE VERDE": "TECNICO 6", "VILLAS DE SAN PABLO": "TECNICO 6",
-    "LAS NIEVES": "TECNICO 7", "SIMON BOLIVAR": "TECNICO 7", "LA CHINITA": "TECNICO 7",
-    "VILLA FLORENCIA": "TECNICO 8", "SIAPE": "TECNICO 8"
-}
-
-# --- FUNCIONES DE LIMPIEZA ---
+# --- FUNCIONES ---
 def limpiar_estricto(txt):
     if not txt: return ""
     txt = str(txt).upper().strip()
@@ -64,10 +52,9 @@ def cargar_maestro_dinamico(file):
             b = limpiar_estricto(str(row[c_b]))
             t = str(row[c_t]).upper().strip()
             if t and t != "NAN": mapa[b] = t
-    except: return MAESTRA_GENERICA
+    except: pass
     return mapa
 
-# Peso Dirección para Ordenamiento
 def calcular_peso_js(txt):
     clean = limpiar_estricto(txt)
     penalidad = 5000 if "SUR" in clean else 0
@@ -77,7 +64,7 @@ def calcular_peso_js(txt):
     else: peso = ref * 1000
     return peso + penalidad + (int(nums[1]) if len(nums)>1 else 0)
 
-# PDF LISTADO (PLANILLA)
+# PDF LISTADO
 class PDFListado(FPDF):
     def header(self):
         self.set_fill_color(0, 51, 102) 
@@ -95,9 +82,8 @@ def crear_pdf_lista(df, tecnico, col_map):
     pdf.set_text_color(0, 0, 0)
     pdf.cell(0, 10, f"GESTOR: {tecnico} | FECHA: {datetime.now().strftime('%d/%m/%Y')} | TOTAL: {len(df)}", 0, 1)
     
-    # Encabezados (Agregamos # ITEM)
     headers = ['#', 'CUENTA', 'MEDIDOR', 'BARRIO', 'DIRECCION', 'CLIENTE']
-    widths = [10, 25, 25, 65, 85, 60] # Ajuste anchos
+    widths = [10, 25, 25, 65, 85, 60]
     
     pdf.set_fill_color(220, 220, 220)
     pdf.set_font('Arial', 'B', 9)
@@ -105,11 +91,7 @@ def crear_pdf_lista(df, tecnico, col_map):
     pdf.ln()
     
     pdf.set_font('Arial', '', 8)
-    
-    # Iterar con índice enumerado para el #
     for idx, (_, row) in enumerate(df.iterrows(), start=1):
-        
-        # Color rojo si es Apoyo
         barrio_txt = str(row[col_map['BARRIO']])
         if pd.notna(row.get('ORIGEN_REAL')):
             barrio_txt = f"[APOYO] {barrio_txt}"
@@ -118,29 +100,27 @@ def crear_pdf_lista(df, tecnico, col_map):
             pdf.set_text_color(0, 0, 0)
 
         data_row = [
-            str(idx), # Numero de ítem
+            str(idx),
             str(row[col_map['CUENTA']]),
             str(row[col_map['MEDIDOR']])[:15] if col_map['MEDIDOR'] else "",
             barrio_txt[:35],
             str(row[col_map['DIRECCION']])[:50] if col_map['DIRECCION'] else "",
             str(row[col_map['CLIENTE']])[:30] if col_map['CLIENTE'] else ""
         ]
-        
         for val, w in zip(data_row, widths):
             try: val_enc = val.encode('latin-1', 'replace').decode('latin-1')
             except: val_enc = val
             pdf.cell(w, 7, val_enc, 1, 0, 'L')
         pdf.ln()
-        
     return pdf.output(dest='S').encode('latin-1')
 
 # --- SESSION ---
-if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = MAESTRA_GENERICA
+if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = {}
 if 'df_simulado' not in st.session_state: st.session_state['df_simulado'] = None
 if 'zip_listo' not in st.session_state: st.session_state['zip_listo'] = None
 
 # --- UI TABS ---
-tab_operacion, tab_visor, tab_config = st.tabs(["🚀 Carga y Automático", "🌍 Ajuste Manual (Visor)", "⚙️ Operarios"])
+tab_operacion, tab_visor, tab_config = st.tabs(["🚀 Carga", "🌍 Visor Manual", "⚙️ Operarios"])
 
 # --- TAB 3: CONFIG ---
 with tab_config:
@@ -148,31 +128,30 @@ with tab_config:
     maestro_file = st.file_uploader("Subir Maestro (Barrio | Técnico)", type=["xlsx", "csv"])
     if maestro_file:
         st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_file)
-        st.success("✅ Base Actualizada")
+        st.success("✅ Actualizado")
 
-# --- SIDEBAR: CUADRILLA ---
+# --- SIDEBAR ---
 lista_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
 TECNICOS_ACTIVOS = []
-st.sidebar.header("👷 Cuadrilla Activa")
+st.sidebar.header("👷 Cuadrilla")
 if lista_tecnicos:
     all_on = st.sidebar.checkbox("Seleccionar Todos", value=True)
     for tec in lista_tecnicos:
         if st.sidebar.toggle(f"{tec}", value=all_on): TECNICOS_ACTIVOS.append(tec)
 
-# --- TAB 1: OPERACIÓN ---
+# --- TAB 1: CARGA ---
 with tab_operacion:
     c1, c2 = st.columns(2)
     with c1: pdf_in = st.file_uploader("1. PDF Pólizas", type="pdf")
     with c2: excel_in = st.file_uploader("2. Excel Ruta", type=["xlsx", "csv"])
     
     if excel_in and lista_tecnicos:
-        if st.button("🚀 EJECUTAR CASCADA AUTOMÁTICA", type="primary"):
+        if st.button("🚀 INICIAR BALANCEO", type="primary"):
             try:
                 if excel_in.name.endswith('.csv'): df = pd.read_csv(excel_in, sep=None, engine='python', encoding='utf-8-sig')
                 else: df = pd.read_excel(excel_in)
                 df.columns = [limpiar_estricto(c) for c in df.columns]
                 
-                # Detectar Columnas
                 def find(k_list):
                     for k in k_list:
                         for c in df.columns: 
@@ -183,12 +162,11 @@ with tab_operacion:
                 c_cta = find(['CUENTA', 'POLIZA', 'CONTRATO'])
                 
                 if c_barrio and c_cta:
-                    # 1. Asignación Inicial
                     df['TECNICO_IDEAL'] = df[c_barrio].apply(lambda x: buscar_tecnico_exacto(str(x), st.session_state['mapa_actual']))
                     df['TECNICO_FINAL'] = df['TECNICO_IDEAL']
                     df['ORIGEN_REAL'] = None
                     
-                    # 2. Balanceo Cascada Simple (Por carga)
+                    # Balanceo
                     TOPE = math.ceil(len(df)/len(TECNICOS_ACTIVOS)) if TECNICOS_ACTIVOS else 35
                     conteo = df['TECNICO_IDEAL'].value_counts()
                     overs = [t for t in TECNICOS_ACTIVOS if conteo.get(t, 0) > TOPE]
@@ -205,7 +183,6 @@ with tab_operacion:
                                 df.loc[idx_move, 'TECNICO_FINAL'] = receiver
                                 df.loc[idx_move, 'ORIGEN_REAL'] = giver
 
-                    # Ausentes
                     for t in df['TECNICO_FINAL'].unique():
                         if t not in TECNICOS_ACTIVOS and t != "SIN_ASIGNAR":
                             idx_absent = df[df['TECNICO_FINAL'] == t].index
@@ -218,7 +195,6 @@ with tab_operacion:
                             else:
                                 df.loc[idx_absent, 'TECNICO_FINAL'] = "SIN_GESTOR_ACTIVO"
 
-                    # Guardar estado
                     st.session_state['df_simulado'] = df
                     st.session_state['col_barrio'] = c_barrio
                     st.session_state['col_cta'] = c_cta
@@ -226,8 +202,8 @@ with tab_operacion:
                     st.session_state['col_med'] = find(['MEDIDOR', 'SERIE', 'APA'])
                     st.session_state['col_cli'] = find(['CLIENTE', 'NOMBRE', 'SUSCRIPTOR'])
                     
-                    st.success("✅ Análisis completado. Revisa la Pestaña 2.")
-                else: st.error("Faltan columnas BARRIO o CUENTA.")
+                    st.success("✅ Balanceo completado. Revisa la Pestaña Visor.")
+                else: st.error("Faltan columnas.")
             except Exception as e: st.error(f"Error procesando: {e}")
 
 # --- TAB 2: VISOR ---
@@ -236,8 +212,7 @@ with tab_visor:
         df = st.session_state['df_simulado']
         c_barrio = st.session_state['col_barrio']
         
-        # --- MOVIMIENTO MANUAL ---
-        st.markdown("### 🛠️ Ajuste Manual")
+        # MOVER
         c1, c2, c3, c4 = st.columns([1.5, 1.5, 1.5, 1])
         with c1: org = st.selectbox("Origen:", ["-"] + sorted(df['TECNICO_FINAL'].unique()))
         with c2: 
@@ -247,7 +222,7 @@ with tab_visor:
             else: bar = None
         with c3: dest = st.selectbox("Destino:", ["-"] + TECNICOS_ACTIVOS)
         with c4: 
-            st.write("")
+            st.write(""); 
             if st.button("MOVER"):
                 if bar and dest != "-":
                     real_b = bar.rsplit(" (", 1)[0]
@@ -258,11 +233,8 @@ with tab_visor:
                     st.rerun()
 
         st.divider()
-        
-        # --- TARJETAS ---
         cols = st.columns(2)
         tecnicos = sorted(df['TECNICO_FINAL'].unique())
-        
         for i, tec in enumerate(tecnicos):
             with cols[i % 2]:
                 sub = df[df['TECNICO_FINAL'] == tec]
@@ -273,82 +245,115 @@ with tab_visor:
 
         st.divider()
         if pdf_in:
-            if st.button("✅ CONFIRMAR Y GENERAR ZIP", type="primary"):
-                with st.spinner("Sincronizando Planilla y PDFs (Orden Espejo)..."):
+            if st.button("✅ GENERAR PAQUETE COMPLETO (DOBLE RESPALDO)", type="primary"):
+                with st.spinner("Procesando estructura de archivos..."):
                     df['CARPETA'] = df['TECNICO_FINAL']
                     
-                    # 1. Indexar PDF
+                    # 1. INDEXAR PDF (Lectura y Extracción)
                     pdf_in.seek(0)
                     doc = fitz.open(stream=pdf_in.read(), filetype="pdf")
-                    mapa_p = {}
-                    for i in range(len(doc)):
+                    mapa_p = {} # Diccionario Global {Cuenta: Bytes}
+                    
+                    # Barra de progreso
+                    prog_bar = st.progress(0)
+                    total_pages = len(doc)
+                    
+                    for i in range(total_pages):
                         txt = doc[i].get_text()
-                        matches = re.findall(r'(?:Póliza|Poliza|Cuenta)\s*(?:No\.?|:)?\s*(\d{4,15})', txt, re.IGNORECASE)
-                        if not matches: matches = re.findall(r'\b(\d{5,12})\b', txt)
+                        # Regex robusto para capturar Cuenta/Poliza/Contrato
+                        matches = re.findall(r'(?:Póliza|Poliza|Cuenta|Contrato)\s*(?:No\.?|:)?\s*(\d{4,15})', txt, re.IGNORECASE)
+                        if not matches:
+                            matches = re.findall(r'\b(\d{6,12})\b', txt) # Fallback numérico
+                        
                         if matches:
-                            pid = matches[0]
+                            pid = matches[0] # Tomamos el primer match
                             sub = fitz.open()
                             sub.insert_pdf(doc, from_page=i, to_page=i)
-                            if i + 1 < len(doc):
-                                if "Poliza" not in doc[i+1].get_text(): sub.insert_pdf(doc, from_page=i+1, to_page=i+1)
+                            
+                            # Revisar si la pagina siguiente es anexo (sin titulo de poliza)
+                            if i + 1 < total_pages:
+                                txt_next = doc[i+1].get_text()
+                                if "Poliza" not in txt_next and "Cuenta" not in txt_next:
+                                    sub.insert_pdf(doc, from_page=i+1, to_page=i+1)
+                            
                             mapa_p[pid] = sub.tobytes()
                             sub.close()
+                        
+                        if i % 10 == 0: prog_bar.progress(i / total_pages)
+                    
+                    prog_bar.progress(100)
 
-                    # 2. Generar ZIP
+                    # 2. GENERAR ZIP ESTRUCTURADO
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w") as zf:
-                        # Backup
+                        
+                        # A. CARPETA TOTAL (AFUERA DE LOS TÉCNICOS)
+                        for cta, pdf_bytes in mapa_p.items():
+                            zf.writestr(f"00_BANCO_DE_POLIZAS_TOTAL/{cta}.pdf", pdf_bytes)
+                        
+                        # B. EXCEL MAESTRO
                         out_b = io.BytesIO()
                         with pd.ExcelWriter(out_b, engine='xlsxwriter') as w: df.to_excel(w, index=False)
-                        zf.writestr("00_CONSOLIDADO.xlsx", out_b.getvalue())
+                        zf.writestr("01_CONSOLIDADO_GENERAL.xlsx", out_b.getvalue())
                         
                         c_map = {'CUENTA': st.session_state['col_cta'], 'MEDIDOR': st.session_state['col_med'], 'BARRIO': c_barrio, 'DIRECCION': st.session_state['col_dir'], 'CLIENTE': st.session_state['col_cli']}
                         
+                        # C. PROCESO POR TÉCNICO
                         for tec in df['CARPETA'].unique():
                             if "SIN_" in tec: continue
                             safe = str(tec).replace(" ","_")
                             df_t = df[df['CARPETA'] == tec].copy()
                             
-                            # --- AQUÍ ESTÁ LA MAGIA DE LA SINCRONIZACIÓN ---
-                            # 1. Ordenamos el DataFrame (Por Ruta/Dirección)
+                            # --- ORDENAMIENTO (CLAVE PARA SINCRONIZACIÓN) ---
                             if st.session_state['col_dir']:
                                 df_t['P'] = df_t[st.session_state['col_dir']].astype(str).apply(calcular_peso_js)
                                 df_t = df_t.sort_values('P')
                             
-                            # 2. Generamos la LISTA PDF con este orden EXACTO
+                            # 1. LISTADO (PLANILLA)
                             pdf_h = crear_pdf_lista(df_t, tec, c_map)
                             zf.writestr(f"{safe}/1_HOJA_DE_RUTA.pdf", pdf_h)
                             
-                            # 3. Generamos el EXCEL con este orden EXACTO
+                            # 2. TABLA DIGITAL (EXCEL)
                             out_t = io.BytesIO()
                             with pd.ExcelWriter(out_t, engine='xlsxwriter') as w: df_t.to_excel(w, index=False)
                             zf.writestr(f"{safe}/2_TABLA_DIGITAL.xlsx", out_t.getvalue())
                             
-                            # 4. Generamos los PDFS UNIDOS iterando este orden EXACTO
+                            # 3. POLIZAS INDIVIDUALES Y UNIFICADAS (EN EL MISMO ORDEN)
                             merger = fitz.open()
-                            count_p = 0
+                            count_merged = 0
+                            
                             for _, r in df_t.iterrows():
-                                cta = str(r[st.session_state['col_cta']]).strip()
-                                # Buscar PDF
-                                pdf_data = None
-                                if cta in mapa_p: pdf_data = mapa_p[cta]
-                                else:
-                                    for k, v in mapa_p.items():
-                                        if cta in k or k in cta: pdf_data = v; break
+                                cta_excel = str(r[st.session_state['col_cta']]).strip()
                                 
-                                if pdf_data:
-                                    with fitz.open(stream=pdf_data, filetype="pdf") as t: merger.insert_pdf(t)
-                                    count_p += 1
+                                # Busqueda Inteligente en el Banco de Polizas
+                                pdf_blob = None
+                                if cta_excel in mapa_p:
+                                    pdf_blob = mapa_p[cta_excel]
+                                else:
+                                    # Búsqueda parcial (contiene)
+                                    for k, v in mapa_p.items():
+                                        if cta_excel in k or k in cta_excel:
+                                            pdf_blob = v; break
+                                
+                                if pdf_blob:
+                                    # Guardar Individual en subcarpeta
+                                    zf.writestr(f"{safe}/POLIZAS_INDIVIDUALES/{cta_excel}.pdf", pdf_blob)
                                     
-                            if count_p > 0:
+                                    # Agregar al Merger (Unificado)
+                                    with fitz.open(stream=pdf_blob, filetype="pdf") as temp_pdf:
+                                        merger.insert_pdf(temp_pdf)
+                                    count_merged += 1
+                            
+                            # Guardar Unificado
+                            if count_merged > 0:
                                 zf.writestr(f"{safe}/3_PAQUETE_LEGALIZACION.pdf", merger.tobytes())
                             merger.close()
 
                     st.session_state['zip_listo'] = zip_buffer.getvalue()
-                    st.success("✅ ¡Descarga Lista! Planillas y PDFs perfectamente sincronizados.")
+                    st.success(f"✅ ¡Paquete Generado! {len(mapa_p)} pólizas procesadas.")
     else:
-        st.info("Sube archivos en Pestaña 1.")
+        st.info("Sube archivos.")
 
 if st.session_state['zip_listo']:
     st.sidebar.divider()
-    st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Sincronizada.zip", "application/zip", type="primary")
+    st.sidebar.download_button("⬇️ DESCARGAR ZIP", st.session_state['zip_listo'], "Logistica_Completa.zip", "application/zip", type="primary")
