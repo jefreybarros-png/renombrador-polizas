@@ -6,19 +6,24 @@ import io
 import zipfile
 import unicodedata
 
-# --- NORMALIZACIÓN TOTAL (Tildes, Espacios, Mayúsculas) ---
-def limpiar_texto(texto):
-    if not texto: return ""
-    # Elimina caracteres invisibles, tildes y espacios extra
-    texto = str(texto).upper().strip()
-    texto = "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    return re.sub(r'\s+', ' ', texto) # Colapsa espacios múltiples
+# --- NORMALIZACIÓN RADICAL ---
+def limpiar_columna(txt):
+    if not txt: return ""
+    # Quita tildes, caracteres especiales, espacios y pasa a mayúsculas
+    txt = str(txt).upper().strip()
+    txt = "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
+    return re.sub(r'[^A-Z0-9]', '', txt) # Deja solo letras y números
 
-# --- LÓGICA DE NOMENCLATURA (BARRANQUILLA) ---
+def limpiar_contenido(txt):
+    if not txt: return ""
+    txt = str(txt).upper().strip()
+    return "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
+
+# --- PESO DE DIRECCIÓN PARA BARRANQUILLA ---
 VALOR_SUFIJOS = {'A': 0.1, 'B': 0.2, 'C': 0.3, 'D': 0.4, 'E': 0.5, 'BIS': 0.05}
 
 def calcular_peso_direccion(dir_text):
-    texto = limpiar_texto(dir_text)
+    texto = limpiar_contenido(dir_text)
     match = re.search(r'(\d+)\s*(BIS|[A-I])?', texto)
     if match:
         peso = float(match.group(1)) + VALOR_SUFIJOS.get(match.group(2), 0.0)
@@ -27,40 +32,52 @@ def calcular_peso_direccion(dir_text):
     if "SUR" in texto: peso -= 5000 
     return peso
 
-st.set_page_config(page_title="Logística Pro V90.0", layout="wide")
-st.title("🚛 Sistema Logístico UT ITA RADIAN")
-st.markdown("Cruce dinámico de **Cuenta (Excel)** vs **Póliza (PDF)** con ordenamiento por nomenclatura.")
+st.set_page_config(page_title="Logística Master V91.0", layout="wide")
+st.title("🚛 Procesador Inteligente de Rutas - UT ITA RADIAN")
 
-pdf_file = st.file_uploader("1. Subir PDF (Pólizas y Recortes)", type="pdf")
-excel_file = st.file_uploader("2. Subir Base de Datos (Excel o CSV)", type=["xlsx", "csv"])
+pdf_file = st.file_uploader("1. Subir PDF (Actas/Pólizas)", type="pdf")
+excel_file = st.file_uploader("2. Subir Base de Datos (Excel/CSV)", type=["xlsx", "csv"])
 
 if pdf_file and excel_file:
-    if st.button("🚀 Iniciar Procesamiento"):
-        # --- CARGA INTELIGENTE DEL ARCHIVO ---
+    if st.button("🚀 Ejecutar Proceso Robusto"):
+        # --- CARGA CON DETECCIÓN DE FORMATO ---
         try:
             if excel_file.name.endswith('.csv'):
-                # Intenta leer CSV detectando si es coma o punto y coma
+                # Intenta con varios separadores comunes
                 df = pd.read_csv(excel_file, sep=None, engine='python', encoding='utf-8-sig')
             else:
                 df = pd.read_excel(excel_file)
             
-            # Limpiamos y normalizamos los nombres de las columnas
-            df.columns = [limpiar_texto(c) for c in df.columns]
+            # Guardamos nombres originales para el reporte, pero creamos un mapa limpio
+            columnas_originales = df.columns.tolist()
+            mapa_columnas = {limpiar_columna(c): c for c in columnas_originales}
+            columnas_limpias = list(mapa_columnas.keys())
+            
+            # Depuración para el usuario
+            with st.expander("Ver columnas detectadas"):
+                st.write(columnas_originales)
+
         except Exception as e:
-            st.error(f"Error al leer el archivo: {e}")
+            st.error(f"Error al leer archivo: {e}")
             st.stop()
 
-        # --- BUSCADOR FLEXIBLE DE COLUMNAS (Independiente de espacios/mayúsculas) ---
-        col_cuenta = next((c for c in df.columns if 'CUENTA' in c), None)
-        col_tecnico = next((c for c in df.columns if 'TECNICO' in c or 'OPERARIO' in c or 'GESTOR' in c), None)
-        col_barrio = next((c for c in df.columns if 'BARRIO' in c), None)
-        col_dir = next((c for c in df.columns if 'DIRECCION' in c or 'DIR' in c), None)
+        # --- BUSCADOR SEMÁNTICO DE COLUMNAS ---
+        def buscar_col(posibles_nombres):
+            for p in posibles_nombres:
+                for c in columnas_limpias:
+                    if p in c: return mapa_columnas[c]
+            return None
+
+        col_cuenta = buscar_col(['CUENTA', 'POLIZA', 'NRO', 'CONTRATO'])
+        col_tecnico = buscar_col(['TECNICO', 'OPERARIO', 'GESTOR', 'NOMBRE'])
+        col_barrio = buscar_col(['BARRIO', 'SECTOR', 'ZONA'])
+        col_dir = buscar_col(['DIRECCION', 'DIR', 'UBICACION'])
 
         if not col_cuenta:
-            st.error(f"❌ No se encontró la columna de Cuenta. Columnas detectadas: {list(df.columns)}")
+            st.error(f"❌ No se encontró columna similar a 'CUENTA'. Columnas: {columnas_originales}")
             st.stop()
 
-        # --- PROCESAMIENTO PDF Y UNIFICACIÓN ---
+        # --- PROCESAMIENTO ---
         doc_original = fitz.open(stream=pdf_file.read(), filetype="pdf")
         zip_buffer = io.BytesIO()
         
@@ -69,32 +86,30 @@ if pdf_file and excel_file:
             i = 0
             while i < len(doc_original):
                 texto_pag = doc_original[i].get_text()
-                match_pol = re.search(r"Poliza\s*No:?\s*(\d+)", limpiar_texto(texto_pag), re.IGNORECASE)
+                match_pol = re.search(r"Póliza\s*No:?\s*(\d+)", texto_pag, re.IGNORECASE)
                 
                 if match_pol:
-                    poliza_id = str(match_pol.group(1))
+                    poliza_pdf = str(match_pol.group(1))
                     paginas_doc = [i]
                     
-                    # Une páginas de firmas/recortes (pág 19 y 20)
+                    # Unificación de recortes (pág 19 y 20)
                     while i + 1 < len(doc_original):
-                        texto_sig = limpiar_texto(doc_original[i+1].get_text())
-                        if "POLIZA NO" not in texto_sig:
+                        if "Póliza No" not in doc_original[i+1].get_text():
                             paginas_doc.append(i+1)
                             i += 1
                         else: break
                     
-                    # Cruce Account (Excel) vs Policy (PDF)
-                    info = df[df[col_cuenta].astype(str).str.contains(poliza_id)]
+                    # Cruce Account == Policy
+                    info = df[df[col_cuenta].astype(str).str.contains(poliza_pdf)]
                     
                     if not info.empty:
-                        gestor = limpiar_texto(info.iloc[0].get(col_tecnico, 'SIN_GESTOR')).replace(" ", "_")
-                        barrio = limpiar_texto(info.iloc[0].get(col_barrio, 'SIN_BARRIO')).replace(" ", "_")
+                        gestor = limpiar_contenido(info.iloc[0].get(col_tecnico, 'SIN_GESTOR')).replace(" ", "_")
+                        barrio = limpiar_contenido(info.iloc[0].get(col_barrio, 'SIN_BARRIO')).replace(" ", "_")
                         
                         pdf_uni = fitz.open()
                         for p in paginas_doc: pdf_uni.insert_pdf(doc_original, from_page=p, to_page=p)
                         
-                        # Organización: GESTOR -> BARRIO -> Poliza.pdf
-                        ruta_pdf = f"{gestor}/{barrio}/Poliza_{poliza_id}.pdf"
+                        ruta_pdf = f"{gestor}/{barrio}/Poliza_{poliza_pdf}.pdf"
                         zip_final.writestr(ruta_pdf, pdf_uni.tobytes())
                         pdf_uni.close()
 
@@ -102,11 +117,11 @@ if pdf_file and excel_file:
                         datos_gestores[gestor].append(info.iloc[0])
                 i += 1
 
-            # --- GENERACIÓN DE TABLAS ORGANIZADAS POR NOMENCLATURA ---
+            # --- GENERACIÓN DE TABLAS ORGANIZADAS ---
             for gestor, filas in datos_gestores.items():
                 df_gestor = pd.DataFrame(filas)
-                # Ordenamiento: Barrio (A-Z) y Nomenclatura (Mayor a Menor)
                 df_gestor['PESO_DIR'] = df_gestor[col_dir].apply(calcular_peso_direccion)
+                # Ordenar por Barrio y Dirección (Mayor a Menor)
                 df_gestor = df_gestor.sort_values(by=[col_barrio, 'PESO_DIR'], ascending=[True, False])
 
                 output_xlsx = io.BytesIO()
@@ -115,5 +130,5 @@ if pdf_file and excel_file:
                 
                 zip_final.writestr(f"{gestor}/TABLA_REPARTO_{gestor}.xlsx", output_xlsx.getvalue())
 
-        st.success("✅ ¡Procesado con éxito! Las columnas fueron detectadas automáticamente.")
-        st.download_button("⬇️ Descargar ZIP de Logística", zip_buffer.getvalue(), "Ruta_Maestra_ItaRadian.zip")
+        st.success("✅ ¡Ruta organizada correctamente!")
+        st.download_button("⬇️ Descargar ZIP Final", zip_buffer.getvalue(), "Logistica_ItaRadian_V91.zip")
