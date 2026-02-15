@@ -1,17 +1,14 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 10.0 "DYNAMO BLINDADA"               #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 11.0 "INFINITY FIX"                  #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: FEBRERO 2026                                                                 #
 #                                                                                       #
-#   MEJORAS CRÍTICAS DE ESTA VERSIÓN:                                                   #
-#   1.  REFRESCO AUTOMÁTICO: Al cargar un nuevo maestro, el sistema se reinicia solo    #
-#       para actualizar inmediatamente las listas de técnicos en todos los menús.       #
-#   2.  MAPEO INTELIGENTE DE COLUMNAS: Detecta "BARRIO", "TECNICO" y "CELULAR" sin      #
-#       importar el orden en el archivo Excel/CSV.                                      #
-#   3.  GESTIÓN DE MEMORIA: Limpia variables antiguas para evitar mezclar bases de      #
-#       datos viejas con nuevas.                                                        #
-#   4.  MÓDULOS INTACTOS: Balanceo, Ajuste Manual, ZIP Completo, Portal Web.            #
+#   CORRECCIÓN CRÍTICA V11.0:                                                           #
+#   - Solucionado el "Bucle Infinito" de recarga al subir el maestro.                   #
+#   - Implementación de 'Check de Estado' para evitar re-procesamientos innecesarios.   #
+#   - Mantenimiento total de módulos (Carga, Balanceo, Manual, Web, ZIP).               #
+#   - Interfaz Gráfica Premium con Logotipo y CSS avanzado.                             #
 #                                                                                       #
 #########################################################################################
 
@@ -35,26 +32,28 @@ import base64
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="Logística ITA | v10.0 Dynamo",
+    page_title="Logística ITA | v11.0 Stable",
     layout="wide",
-    page_icon="🚚",
+    page_icon="🚛",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
-        'About': "Sistema Logístico ITA - Versión 10.0 Dinámica"
+        'About': "Sistema Logístico ITA - Versión 11.0 Estable"
     }
 )
 
 # Inicialización de Variables de Sesión (Estado Global)
 if 'admin_logged_in' not in st.session_state: st.session_state['admin_logged_in'] = False
 if 'mapa_actual' not in st.session_state: st.session_state['mapa_actual'] = {}
-if 'mapa_telefonos' not in st.session_state: st.session_state['mapa_telefonos'] = {} # Nuevo: Teléfonos
+if 'mapa_telefonos' not in st.session_state: st.session_state['mapa_telefonos'] = {}
 if 'df_simulado' not in st.session_state: st.session_state['df_simulado'] = None
 if 'col_map_final' not in st.session_state: st.session_state['col_map_final'] = None
 if 'mapa_polizas_cargado' not in st.session_state: st.session_state['mapa_polizas_cargado'] = {}
 if 'zip_admin_ready' not in st.session_state: st.session_state['zip_admin_ready'] = None
 if 'tecnicos_activos_manual' not in st.session_state: st.session_state['tecnicos_activos_manual'] = []
+# VARIABLE CRÍTICA PARA EVITAR EL BUCLE INFINITO
+if 'ultimo_archivo_procesado' not in st.session_state: st.session_state['ultimo_archivo_procesado'] = None
 
 # Inyección de CSS (Estilos Avanzados)
 st.markdown("""
@@ -70,11 +69,11 @@ st.markdown("""
     
     /* SIDEBAR BLINDADA */
     section[data-testid="stSidebar"] {
-        background-color: #1E293B; 
-        border-right: 1px solid #334155;
+        background-color: #111827; 
+        border-right: 1px solid #1E293B;
     }
     
-    /* LOGO CONTAINER */
+    /* CONTENEDOR DE LOGO */
     .logo-container {
         display: flex;
         flex-direction: column;
@@ -316,7 +315,6 @@ def cargar_maestro_dinamico(file):
     """
     Carga INTELIGENTE del archivo maestro.
     Busca columnas por nombre ('BARRIO', 'TECNICO', 'CELULAR') en lugar de posición fija.
-    Esto permite que el usuario cambie el orden de columnas sin romper el sistema.
     """
     mapa = {}
     telefonos = {}
@@ -498,7 +496,6 @@ with st.sidebar:
                 todos_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
                 
                 # Widget de Asistencia
-                # Usamos una key única para que no se resetee sola a menos que lo forcemos
                 seleccion_activos = st.multiselect(
                     "Técnicos Habilitados:",
                     options=todos_tecnicos,
@@ -527,10 +524,10 @@ with st.sidebar:
             """, unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión v10.0")
+        st.info("Bienvenido al Portal de Autogestión v11.0")
 
     st.markdown("---")
-    st.caption("Sistema Logístico Seguro v10.0")
+    st.caption("Sistema Logístico Seguro v11.0")
 
 # =======================================================================================
 # SECCIÓN 6: VISTA DEL TÉCNICO (PORTAL DE DESCARGAS)
@@ -643,30 +640,39 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             
             f_maestro = st.file_uploader("Subir Maestro (Excel/CSV)", type=["xlsx", "csv"])
             
+            # --- LÓGICA DE CARGA ÚNICA (EVITA BUCLE) ---
             if f_maestro:
-                with st.spinner("Indexando base de datos y limpiando memoria anterior..."):
-                    # 1. Cargar nuevo mapa
-                    nuevo_mapa, nuevos_telefonos = cargar_maestro_dinamico(f_maestro)
-                    
-                    if nuevo_mapa:
-                        st.session_state['mapa_actual'] = nuevo_mapa
-                        st.session_state['mapa_telefonos'] = nuevos_telefonos
+                # Verificamos si este archivo YA fue procesado en esta sesión para no hacerlo 2 veces
+                if st.session_state.get('ultimo_archivo_procesado') != f_maestro.name:
+                    with st.spinner("Indexando base de datos y limpiando memoria anterior..."):
+                        # 1. Cargar nuevo mapa
+                        nuevo_mapa, nuevos_telefonos = cargar_maestro_dinamico(f_maestro)
                         
-                        # 2. LIMPIEZA PROFUNDA (Esto garantiza el dinamismo)
-                        st.session_state['df_simulado'] = None # Borrar rutas viejas
-                        st.session_state['tecnicos_activos_manual'] = [] # Resetear asistencia
-                        
-                        st.success(f"✅ Maestro cargado con éxito: {len(nuevo_mapa)} barrios detectados.")
-                        st.markdown("""
-                            <div class='unlocked-msg'>
-                                🔄 <b>SISTEMA ACTUALIZADO</b><br>
-                                Recargando interfaz para aplicar los nuevos nombres...
-                            </div>
-                        """, unsafe_allow_html=True)
-                        time.sleep(1.5)
-                        st.rerun() # RECARGA TOTAL DE LA PÁGINA
-                    else:
-                        st.error("❌ Error en el archivo: No se encontraron columnas válidas.")
+                        if nuevo_mapa:
+                            st.session_state['mapa_actual'] = nuevo_mapa
+                            st.session_state['mapa_telefonos'] = nuevos_telefonos
+                            
+                            # 2. LIMPIEZA PROFUNDA (Esto garantiza el dinamismo)
+                            st.session_state['df_simulado'] = None # Borrar rutas viejas
+                            st.session_state['tecnicos_activos_manual'] = [] # Resetear asistencia
+                            
+                            # 3. MARCAR COMO PROCESADO
+                            st.session_state['ultimo_archivo_procesado'] = f_maestro.name
+                            
+                            st.success(f"✅ Maestro cargado con éxito: {len(nuevo_mapa)} barrios detectados.")
+                            st.markdown("""
+                                <div class='unlocked-msg'>
+                                    🔄 <b>SISTEMA ACTUALIZADO</b><br>
+                                    Recargando interfaz para aplicar los nuevos nombres...
+                                </div>
+                            """, unsafe_allow_html=True)
+                            time.sleep(1.5)
+                            st.rerun() # RECARGA TOTAL DE LA PÁGINA PARA ACTUALIZAR SIDEBAR
+                        else:
+                            st.error("❌ Error en el archivo: No se encontraron columnas válidas.")
+                else:
+                    # Si ya estaba procesado, solo mostramos el estado sin reiniciar
+                    st.info(f"Archivo activo: {f_maestro.name}")
             
             # Visor de estado actual
             if st.session_state['mapa_actual']:
@@ -750,8 +756,8 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     df_proc = df_proc.sort_values(by=[sb, 'S'])
                     
                     # 4. Repartir Vacantes (A quien menos tiene)
-                    vacs = df_proc[df_proc['TECNICO_FINAL'] == "VACANTE"]
-                    for idx_v, _ in vacs.iterrows():
+                    vacantes = df_proc[df_proc['TECNICO_FINAL'] == "VACANTE"]
+                    for idx_v, _ in vacantes.iterrows():
                         cnt_live = df_proc[df_proc['TECNICO_FINAL'].isin(tecnicos_hoy)]['TECNICO_FINAL'].value_counts()
                         for t in tecnicos_hoy:
                             if t not in cnt_live: cnt_live[t] = 0
@@ -801,7 +807,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 with c3: dst = st.selectbox("Para:", ["-"]+destinos_posibles)
                 with c4:
                     st.write("")
-                    if st.button("Mover Barrio"):
+                    if st.button("Mover"):
                         if bar and dst!="-":
                             rb = bar.rsplit(" (",1)[0]
                             msk = (df['TECNICO_FINAL']==org) & (df[cbar]==rb)
@@ -820,7 +826,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
 
         # --- TAB 4: PUBLICAR ---
         with tab4:
-            st.markdown("### 🌍 Distribución")
+            st.markdown("### 🌍 Distribución Final")
             if st.session_state['df_simulado'] is not None:
                 dff = st.session_state['df_simulado']
                 cmf = st.session_state['col_map_final']
@@ -854,7 +860,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 with open(os.path.join(pto, "3_PAQUETE_LEGALIZACION.pdf"), "wb") as f: f.write(mg.tobytes())
                             mg.close()
                         pg.progress((i+1)/len(tfin))
-                    st.success("✅ Rutas Publicadas en Web.")
+                    st.success("✅ Publicado en Web.")
                     st.balloons()
                 
                 st.divider()
@@ -890,9 +896,9 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 for _,r in dt.iterrows():
                                     c = normalizar_numero(str(r[cmf['CUENTA']]))
                                     if c in pls:
-                                        # CARPETA 4 (Individual)
+                                        # Carpeta 4: Individuales
                                         z.writestr(f"{safe}/4_POLIZAS_INDIVIDUALES/{c}.pdf", pls[c])
-                                        # CARPETA 3 (Merge)
+                                        # Carpeta 3: Merge
                                         with fitz.open(stream=pls[c], filetype="pdf") as x: mg.insert_pdf(x)
                                         n+=1
                                 if n>0: z.writestr(f"{safe}/3_PAQUETE_LEGALIZACION.pdf", mg.tobytes())
