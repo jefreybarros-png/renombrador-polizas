@@ -60,10 +60,32 @@ def cargar_maestro_dinamico(file):
     except: pass
     return mapa
 
-# ALGORITMO "NATURAL SORT" (Para que CL 2 vaya antes que CL 10 y maneje letras)
+# --- REEMPLAZA ESTA FUNCIÓN ---
 def natural_sort_key(txt):
+    if not txt: return tuple()
     txt = str(txt).upper()
-    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt)]
+    # Cambiamos los corchetes [] por tuple() para que sea "hashable"
+    return tuple(int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt))
+
+# --- Y EN EL MOMENTO DE GENERAR EL ZIP, ASEGÚRATE DE ESTO ---
+# Dentro del bloque de generación del ZIP, donde ordenamos por barrio:
+
+for tec in df['CARPETA'].unique():
+    if "SIN_" in tec: continue
+    safe = str(tec).replace(" ","_")
+    df_t = df[df['CARPETA'] == tec].copy()
+    
+    # ORDENAMIENTO BLOQUEADO POR BARRIO
+    c_dir = col_map.get('DIRECCION')
+    if c_dir:
+        # Aquí aplicamos la función que ahora devuelve una TUPLA
+        df_t['SORT_DIR'] = df_t[c_dir].astype(str).apply(natural_sort_key)
+        
+        # Ordenamos por Barrio y luego por la tupla de dirección
+        df_t = df_t.sort_values(by=[col_map['BARRIO'], 'SORT_DIR'])
+        
+        # Borramos la columna temporal para que no salga en el Excel final
+        df_t = df_t.drop(columns=['SORT_DIR'])
 
 # PDF LISTADO
 class PDFListado(FPDF):
