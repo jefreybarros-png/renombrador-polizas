@@ -28,6 +28,7 @@ st.markdown("""
 st.title("🎯 Logística ITA: Envío Masivo Blindado")
 
 # --- 🤖 CONFIGURACIÓN DEL BOT ---
+# Asegúrate de que esta URL NO tenga la barra / al final
 URL_BOT_WEB = "https://foolish-bird-yefrey-ad8a8551.koyeb.app"
 LLAVE_ADMIN = "itasecreto"
 INSTANCIA = "ita_principal"
@@ -41,7 +42,6 @@ def limpiar_estricto(txt):
 
 def normalizar_numero(txt):
     if not txt: return ""
-    # Quitar decimales molestos de Excel (ej: 300123.0 -> 300123)
     txt = str(txt).replace('.0', '')
     nums = re.sub(r'\D', '', txt)
     return str(int(nums)) if nums else ""
@@ -67,7 +67,6 @@ def cargar_maestro_dinamico(file):
             
         df.columns = [str(c).upper().strip() for c in df.columns]
         
-        # Búsqueda inteligente de columnas
         col_barrio = next((c for c in df.columns if 'BARRIO' in c or 'SECTOR' in c), df.columns[0])
         col_tecnico = next((c for c in df.columns if 'TECNICO' in c or 'OPERARIO' in c or 'NOMBRE' in c), df.columns[1])
         col_tel = next((c for c in df.columns if 'TEL' in c or 'CEL' in c or 'MOVIL' in c or 'CONTACTO' in c), None)
@@ -75,23 +74,17 @@ def cargar_maestro_dinamico(file):
         for _, row in df.iterrows():
             b = limpiar_estricto(str(row[col_barrio]))
             t = str(row[col_tecnico]).upper().strip()
-            
             if t and t != "NAN": 
                 mapa[b] = t
                 if col_tel and pd.notna(row[col_tel]):
                     raw_tel = str(row[col_tel])
                     if raw_tel.endswith('.0'): raw_tel = raw_tel[:-2]
                     num_limpio = re.sub(r'\D', '', raw_tel)
-                    
-                    # Validar longitud mínima de celular
-                    if len(num_limpio) >= 10:
-                        telefonos[t] = num_limpio
+                    if len(num_limpio) >= 10: telefonos[t] = num_limpio
 
         st.session_state['mapa_telefonos'] = telefonos
-        
     except Exception as e: 
         st.error(f"Error leyendo maestro: {e}")
-        
     return mapa
 
 # --- ALGORITMO DE ORDENAMIENTO ---
@@ -100,30 +93,34 @@ def natural_sort_key(txt):
     txt = str(txt).upper()
     return tuple(int(s) if s.isdigit() else s for s in re.split(r'(\d+)', txt))
 
-# --- FUNCIONES WHATSAPP (CORREGIDAS: MODO MULTIPART) ---
-def auto_reparar_bot():
-    """Función de emergencia para reiniciar la instancia si se bloquea."""
-    headers = {"apikey": LLAVE_ADMIN}
+# --- FUNCIONES WHATSAPP (AQUÍ ESTÁ LA MAGIA ANTI-404) ---
+
+def asegurar_instancia():
+    """Esta función verifica si la instancia existe. Si no, la crea."""
+    headers = {"apikey": LLAVE_ADMIN, "Content-Type": "application/json"}
     try:
-        requests.delete(f"{URL_BOT_WEB}/instance/logout/{INSTANCIA}", headers=headers)
-        requests.delete(f"{URL_BOT_WEB}/instance/delete/{INSTANCIA}", headers=headers)
-        time.sleep(2)
-        requests.post(f"{URL_BOT_WEB}/instance/create", headers=headers, json={"instanceName": INSTANCIA})
+        # Intentamos conectar primero
+        res = requests.get(f"{URL_BOT_WEB}/instance/connect/{INSTANCIA}", headers=headers)
+        
+        # Si da 404 (No existe), la creamos
+        if res.status_code == 404 or "not exist" in res.text:
+            # print("Instancia no encontrada, creando...")
+            requests.post(f"{URL_BOT_WEB}/instance/create", headers=headers, json={"instanceName": INSTANCIA})
+            time.sleep(1) # Damos un segundo para que respire
+            return True
+            
         return True
-    except: return False
+    except:
+        return False
 
 def obtener_qr_web():
     headers = {"apikey": LLAVE_ADMIN, "Content-Type": "application/json"}
     try:
-        # Asegurar que existe la instancia
-        requests.post(f"{URL_BOT_WEB}/instance/create", headers=headers, json={"instanceName": INSTANCIA})
+        asegurar_instancia() # Siempre aseguramos antes de pedir QR
         
         res = requests.get(f"{URL_BOT_WEB}/instance/connect/{INSTANCIA}", headers=headers)
         if res.status_code == 200:
             return res.json()
-        elif res.status_code == 404:
-            auto_reparar_bot() # Si no existe, la creamos a la fuerza
-            return obtener_qr_web() # Reintentar
     except Exception as e:
         st.error(f"Error conexión: {e}")
     return None
@@ -131,18 +128,16 @@ def obtener_qr_web():
 def enviar_pdf_whatsapp(telefono, pdf_bytes, nombre_archivo, mensaje):
     if not pdf_bytes: return False, "PDF vacío"
     
-    # IMPORTANTE: No usamos 'Content-Type: application/json' aquí porque vamos a mandar archivo
+    # 1. PASO CLAVE: Aseguramos que la instancia exista antes de enviar
+    # Esto elimina el error 404 de raíz.
+    asegurar_instancia()
+    
     headers = {"apikey": LLAVE_ADMIN}
     
-    # Formateo del número
     numero_limpio = re.sub(r'\D', '', str(telefono))
     if len(numero_limpio) == 10: numero_limpio = "57" + numero_limpio
     
-    # Preparamos los datos para Multipart (Como adjuntar un archivo)
-    files = {
-        'file': (nombre_archivo, pdf_bytes, 'application/pdf')
-    }
-    
+    files = {'file': (nombre_archivo, pdf_bytes, 'application/pdf')}
     data = {
         "number": numero_limpio,
         "mediatype": "document",
@@ -152,11 +147,21 @@ def enviar_pdf_whatsapp(telefono, pdf_bytes, nombre_archivo, mensaje):
     }
     
     try:
-        # Usamos 'files' y 'data'. Requests se encarga de los encabezados.
+        # Enviamos
         res = requests.post(f"{URL_BOT_WEB}/message/sendMedia/{INSTANCIA}", headers=headers, data=data, files=files, timeout=40)
         
         if res.status_code in [200, 201]: 
             return True, "Enviado"
+            
+        # Si por alguna razón extraña sigue dando 404, reintentamos una vez más creando la instancia
+        elif res.status_code == 404:
+             requests.post(f"{URL_BOT_WEB}/instance/create", headers={"apikey": LLAVE_ADMIN}, json={"instanceName": INSTANCIA})
+             time.sleep(2)
+             # Reintento final
+             res2 = requests.post(f"{URL_BOT_WEB}/message/sendMedia/{INSTANCIA}", headers=headers, data=data, files=files, timeout=40)
+             if res2.status_code in [200, 201]: return True, "Enviado (Reintento)"
+             else: return False, f"Error Reintento: {res2.text}"
+
         else:
             return False, f"Error API ({res.status_code}): {res.text}"
             
@@ -227,12 +232,9 @@ with tab_cfg:
         st.session_state['mapa_actual'] = cargar_maestro_dinamico(maestro_file)
         total_tec = len(set(st.session_state['mapa_actual'].values()))
         total_tel = len(st.session_state['mapa_telefonos'])
-        
         st.success(f"✅ Base Actualizada: {total_tec} Técnicos.")
-        if total_tel == 0:
-            st.warning("⚠️ No se encontraron teléfonos. Verifica la columna 'CELULAR' o 'TELEFONO'.")
-        else:
-            st.success(f"📞 {total_tel} Teléfonos detectados.")
+        if total_tel > 0: st.success(f"📞 {total_tel} Teléfonos detectados.")
+        else: st.warning("⚠️ No se encontraron teléfonos.")
 
 lista_tecnicos = sorted(list(set(st.session_state['mapa_actual'].values())))
 TECNICOS_ACTIVOS = []
@@ -331,8 +333,7 @@ with tab_vis:
                     st.rerun()
 
         if pdf_in:
-            if st.button("✅ GENERAR ZIP", type="secondary"):
-                pass # (Misma lógica ZIP, resumida)
+             if st.button("✅ GENERAR ZIP", type="secondary"): pass
 
 # --- TAB 4: WHATSAPP MASIVO ---
 with tab_bot:
@@ -356,7 +357,6 @@ with tab_bot:
     if st.session_state['df_simulado'] is not None:
         df_w = st.session_state['df_simulado']
         col_map_w = st.session_state['col_map']
-        
         tecnicos_con_ruta = [t for t in sorted(df_w['TECNICO_FINAL'].unique()) if "SIN_" not in t]
         
         st.subheader("🚀 Envío Masivo")
@@ -367,7 +367,6 @@ with tab_bot:
             
             for i, tec in enumerate(tecnicos_con_ruta):
                 tel = st.session_state['mapa_telefonos'].get(tec, "")
-                
                 if not tel:
                     st.toast(f"⚠️ {tec} no tiene número. Saltando...", icon="⏭️")
                 else:
@@ -386,13 +385,12 @@ with tab_bot:
                         errores += 1
                         st.error(f"Error {tec}: {resp}")
                     
-                    time.sleep(2) # Pausa anti-bloqueo
+                    time.sleep(1) # Pausa rápida
                 
                 barra.progress((i + 1) / len(tecnicos_con_ruta))
                 
             st.success(f"✅ Terminado. Enviados: {enviados} | Fallos: {errores}")
 
-        # Sección individual para pruebas
         st.divider()
         st.subheader("🕵️‍♂️ Envío Individual")
         for tec in tecnicos_con_ruta:
@@ -404,7 +402,6 @@ with tab_bot:
                 if st.button(f"Enviar", key=f"btn_{tec}"):
                     if not telefono: st.warning("Sin número")
                     else:
-                        # Lógica envío simple
                         df_t_w = df_w[df_w['TECNICO_FINAL'] == tec].copy()
                         df_t_w['SORT_DIR'] = df_t_w[col_map_w['DIRECCION']].astype(str).apply(natural_sort_key)
                         df_t_w = df_t_w.sort_values(by=[col_map_w['BARRIO'], 'SORT_DIR'])
