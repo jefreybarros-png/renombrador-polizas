@@ -1,6 +1,6 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 13.0 "SATURATION MODE"               #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 13.1 "SATURATION + RESET"            #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: FEBRERO 2026                                                                 #
 #                                                                                       #
@@ -10,6 +10,9 @@
 #     antes de pasar al siguiente, evitando dispersar la carga ("regar operarios").     #
 #   - Se mantiene la seguridad de sesión, ZIP completo y Portal Web.                    #
 #                                                                                       #
+#   AJUSTE V13.1:                                                                       #
+#   - Se añade botón de REINICIO TOTAL para limpiar variables de sesión y evitar        #
+#     cruce de técnicos o históricos al cargar nuevos archivos.                         #
 #########################################################################################
 
 import streamlit as st
@@ -631,6 +634,30 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
         
         # --- TAB 1: CARGA DE MAESTRO (ACTUALIZADO CON REINICIO) ---
         with tab1:
+            # ========================================================================
+            # NUEVO BOTÓN DE REINICIO DE SISTEMA
+            # ========================================================================
+            st.markdown("### Acciones de Mantenimiento")
+            col_reset, col_explain = st.columns([1, 2])
+            with col_reset:
+                if st.button("🗑️ REINICIAR SISTEMA (NUEVA OPERACIÓN)", type="primary", help="Borra todos los históricos, técnicos cargados y archivos para iniciar de cero."):
+                    # Limpieza radical de variables de sesión
+                    st.session_state['mapa_actual'] = {}
+                    st.session_state['mapa_telefonos'] = {}
+                    st.session_state['df_simulado'] = None
+                    st.session_state['col_map_final'] = None
+                    st.session_state['mapa_polizas_cargado'] = {}
+                    st.session_state['zip_admin_ready'] = None
+                    st.session_state['tecnicos_activos_manual'] = []
+                    st.session_state['ultimo_archivo_procesado'] = None
+                    st.success("✅ Sistema reseteado correctamente. Memoria limpia.")
+                    time.sleep(1)
+                    st.rerun()
+            with col_explain:
+                st.caption("⚠️ Úsalo antes de cargar un nuevo archivo maestro para asegurar que no se mezclen los técnicos antiguos con los nuevos.")
+
+            st.divider()
+
             st.markdown("### Configuración de Zonas y Técnicos")
             st.info("Carga aquí el archivo que relaciona cada Barrio con su Técnico responsable.")
             
