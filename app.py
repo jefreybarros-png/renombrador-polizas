@@ -1,15 +1,14 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 13.3 "CONTROL MANUAL TOTAL"          #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 13.4 "INTERFAZ INTERACTIVA"          #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: FEBRERO 2026                                                                 #
 #                                                                                       #
-#   AJUSTE DE LÓGICA V13.3 (CONTROL ESTRICTO):                                          #
-#   - Se elimina la "saturación automática" (el sistema ya no reparte solo).            #
-#   - Todo lo que no tiene técnico activo va a la "Bolsa Pendiente".                    #
-#   - Todo lo que excede el cupo de un técnico va a la "Bolsa Pendiente".               #
-#   - En la Pestaña 3, el administrador decide manualmente qué cantidad y a quién       #
-#     asignar, viendo claramente qué operarios están libres y cuáles son sus topes.     #
+#   AJUSTE DE LÓGICA V13.4 (CLICK & POPUP):                                             #
+#   - Se elimina el menú desplegable tradicional de la Pestaña 3.                       #
+#   - Se implementan botones dinámicos por cada barrio asignado a un técnico o bolsa.   #
+#   - Al hacer clic en un barrio, se abre un Modal (st.dialog) para trasladar la        #
+#     cantidad deseada de forma rápida y visual, simulando la velocidad del Drag&Drop.  #
 #########################################################################################
 
 import streamlit as st
@@ -31,14 +30,14 @@ import base64
 # =======================================================================================
 
 st.set_page_config(
-    page_title="Logística ITA | v13.3 Control Manual",
+    page_title="Logística ITA | v13.4 Interactivo",
     layout="wide",
     page_icon="🚚",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': None,
         'Report a bug': None,
-        'About': "Sistema Logístico ITA - Versión 13.3 Bolsa Manual Total"
+        'About': "Sistema Logístico ITA - Versión 13.4 Interfaz Modal"
     }
 )
 
@@ -54,7 +53,7 @@ if 'tecnicos_activos_manual' not in st.session_state: st.session_state['tecnicos
 if 'ultimo_archivo_procesado' not in st.session_state: st.session_state['ultimo_archivo_procesado'] = None
 if 'limites_cupo' not in st.session_state: st.session_state['limites_cupo'] = {}
 
-# Inyección de CSS (Soporte Modo Claro/Oscuro)
+# Inyección de CSS (Soporte Modo Claro/Oscuro y Botones Interactivos)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
@@ -74,11 +73,61 @@ st.markdown("""
     div.stDownloadButton > button:first-child { background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white !important; border-radius: 10px; height: 58px; width: 100%; font-size: 17px; font-weight: 700; border: 1px solid #059669; }
     div.stDownloadButton > button:first-child:hover { background: linear-gradient(135deg, #10B981 0%, #059669 100%); }
 
+    /* Botones pequeños para los barrios (Interacción tipo Kanban) */
+    .btn-barrio > button:first-child {
+        background: transparent !important;
+        color: #0284C7 !important;
+        border: 2px solid #0284C7 !important;
+        border-radius: 8px !important;
+        height: auto !important;
+        padding: 5px 10px !important;
+        font-size: 13px !important;
+        text-transform: none !important;
+        font-weight: 600 !important;
+        margin-bottom: 5px !important;
+        box-shadow: none !important;
+    }
+    .btn-barrio > button:first-child:hover {
+        background: #F0F9FF !important;
+        transform: scale(1.02) !important;
+    }
+
     .locked-msg { background-color: #FEE2E2; color: #991B1B; padding: 15px; border-radius: 8px; border: 1px solid #F87171; text-align: center; font-weight: bold; }
     .unlocked-msg { background-color: #D1FAE5; color: #065F46; padding: 10px; border-radius: 8px; border: 1px solid #34D399; text-align: center; margin-top: 10px; font-weight: bold; }
     .tech-header { font-size: 32px; font-weight: 800; background: -webkit-linear-gradient(0deg, #0284C7, #4F46E5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; margin-bottom: 20px; border-bottom: 2px solid #38BDF8; padding-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
+
+# =======================================================================================
+# FUNCION DIALOG (MODAL PARA TRASLADAR) - REQUIERE STREAMLIT >= 1.34
+# =======================================================================================
+@st.dialog("🔄 Trasladar Visitas")
+def modal_traslado(origen, barrio_limpio, max_cant, opciones_destino, df_estado, cbar_name):
+    st.markdown(f"Moviendo **{barrio_limpio}**")
+    st.caption(f"Origen actual: {origen}")
+    
+    dst = st.selectbox("¿A quién se lo pasas?", ["-- Seleccionar --"] + opciones_destino)
+    cant = st.number_input(f"Cantidad a mover (Máximo {max_cant}):", min_value=1, max_value=max_cant, value=max_cant)
+    
+    if st.button("CONFIRMAR TRASLADO", type="primary"):
+        if dst != "-- Seleccionar --" and dst != origen:
+            df_work = df_estado.copy()
+            # Seleccionar la cantidad exacta a mover
+            idx_to_move = df_work[(df_work['TECNICO_FINAL']==origen) & (df_work[cbar_name]==barrio_limpio)].head(cant).index
+            
+            for idx in idx_to_move:
+                # Si viene de la bolsa o se asigna manualmente entre técnicos, guardamos origen
+                if dst != "⚠️ BOLSA PENDIENTE" and origen == "⚠️ BOLSA PENDIENTE":
+                    df_work.loc[idx, 'ORIGEN_REAL'] = df_work.loc[idx, 'TECNICO_IDEAL']
+                elif dst != "⚠️ BOLSA PENDIENTE" and origen != "⚠️ BOLSA PENDIENTE":
+                    df_work.loc[idx, 'ORIGEN_REAL'] = origen
+                    
+                df_work.loc[idx, 'TECNICO_FINAL'] = dst
+                
+            st.session_state['df_simulado'] = df_work
+            st.rerun()
+        else:
+            st.error("Por favor selecciona un destino válido distinto al origen.")
 
 # =======================================================================================
 # SECCIÓN 2: GESTIÓN DE SISTEMA DE ARCHIVOS (PERSISTENCIA WEB)
@@ -278,10 +327,10 @@ with st.sidebar:
             st.markdown("""<div class="locked-msg">🔒 MENÚ BLOQUEADO<br>Inicia sesión.</div>""", unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión v13.3")
+        st.info("Bienvenido al Portal de Autogestión v13.4")
 
     st.markdown("---")
-    st.caption("Sistema Logístico Seguro v13.3")
+    st.caption("Sistema Logístico Seguro v13.4")
 
 # =======================================================================================
 # SECCIÓN 6: VISTA DEL TÉCNICO (PORTAL DE DESCARGAS)
@@ -348,7 +397,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 st.session_state['admin_logged_in'] = False
                 st.rerun()
         
-        tab1, tab2, tab3, tab4 = st.tabs(["1. 🗃️ Base Operarios", "2. ⚖️ Carga & Asignación Base", "3. 🛠️ Ajuste Manual Total", "4. 🌍 Publicación Final"])
+        tab1, tab2, tab3, tab4 = st.tabs(["1. 🗃️ Base Operarios", "2. ⚖️ Carga & Asignación Base", "3. 🛠️ Tablero Interactivo (Mover)", "4. 🌍 Publicación Final"])
         
         # --- TAB 1: CARGA DE MAESTRO ---
         with tab1:
@@ -457,24 +506,18 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     if up_pdf and not st.session_state['mapa_polizas_cargado']:
                         st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
                     
-                    # Guardamos límites en sesión para usarlos en Pestaña 3
                     st.session_state['limites_cupo'] = LIMITES
-                    
                     df_proc = df.copy()
                     
                     # 1. Asignar Idealmente
                     df_proc['TECNICO_IDEAL'] = df_proc[sb].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
                     df_proc['TECNICO_FINAL'] = df_proc['TECNICO_IDEAL']
-                    df_proc['ORIGEN_REAL'] = None # Solo se usará para rastrear de dónde vino el apoyo
+                    df_proc['ORIGEN_REAL'] = None
                     
                     # 2. Ordenar Alfabéticamente las Calles
                     df_proc['S'] = df_proc[sd].astype(str).apply(natural_sort_key)
                     df_proc = df_proc.sort_values(by=[sb, 'S'])
 
-                    # =========================================================
-                    # LÓGICA V13.3: TODO A LA BOLSA (Sin Técnico y Excedentes)
-                    # =========================================================
-                    
                     # A. Los que NO tienen técnico activo hoy -> A LA BOLSA
                     msk_sin_tecnico = ~df_proc['TECNICO_FINAL'].isin(tecnicos_hoy)
                     df_proc.loc[msk_sin_tecnico, 'ORIGEN_REAL'] = "SIN TÉCNICO ACTIVO"
@@ -487,7 +530,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         
                         if len(idx_tech) > tope:
                             excedente = len(idx_tech) - tope
-                            # Tomamos los últimos registros para enviarlos a la bolsa
                             indices_mover = idx_tech[-excedente:]
                             df_proc.loc[indices_mover, 'ORIGEN_REAL'] = f"EXCEDE CUPO ({tech})"
                             df_proc.loc[indices_mover, 'TECNICO_FINAL'] = "⚠️ BOLSA PENDIENTE"
@@ -499,9 +541,11 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             elif not tecnicos_hoy and st.session_state['mapa_actual']:
                 st.error("⚠️ No hay técnicos activos. Revisa la barra lateral.")
 
-        # --- TAB 3: AJUSTE MANUAL (CANTIDAD Y BOLSA) ---
+        # --- TAB 3: AJUSTE MANUAL (INTERFAZ VISUAL KANBAN) ---
         with tab3:
-            st.markdown("### 🛠️ Ajuste Manual y Reparto de Bolsa")
+            st.markdown("### 🛠️ Tablero Interactivo de Movimientos")
+            st.info("👇 Haz clic en el botón de cualquier barrio para enviarlo a otro operario.")
+            
             if st.session_state['df_simulado'] is not None:
                 df = st.session_state['df_simulado']
                 cbar = st.session_state['col_map_final']['BARRIO']
@@ -512,61 +556,32 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 else:
                     todos_activos_hoy = sorted(list(set(st.session_state['mapa_actual'].values())))
 
-                # 1. MOSTRAR LA GRAN BOLSA PENDIENTE
+                opciones_destino = ["⚠️ BOLSA PENDIENTE"] + todos_activos_hoy
+
+                # 1. MOSTRAR LA GRAN BOLSA PENDIENTE (COMO BOTONES)
                 bolsa_df = df[df['TECNICO_FINAL'] == "⚠️ BOLSA PENDIENTE"]
                 if not bolsa_df.empty:
-                    st.warning(f"🚨 Tienes {len(bolsa_df)} visitas en la BOLSA pendientes por asignar (Sin técnico o Excedentes).")
-                    resumen_bolsa = bolsa_df.groupby([cbar, 'ORIGEN_REAL'], dropna=False).size().reset_index(name='Cantidad Pendiente')
-                    st.dataframe(resumen_bolsa, use_container_width=True, hide_index=True)
+                    with st.expander(f"🚨 BOLSA PENDIENTE ({len(bolsa_df)} visitas sin asignar)", expanded=True):
+                        resumen_bolsa = bolsa_df.groupby([cbar]).size().reset_index(name='N')
+                        
+                        # Crear una cuadrícula para los botones
+                        cols_bolsa = st.columns(6)
+                        for idx, row_b in resumen_bolsa.iterrows():
+                            b_name = row_b[cbar]
+                            b_count = row_b['N']
+                            
+                            with cols_bolsa[idx % 6]:
+                                st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
+                                if st.button(f"📦 {b_name} ({b_count})", key=f"btn_bolsa_{idx}"):
+                                    modal_traslado("⚠️ BOLSA PENDIENTE", b_name, b_count, opciones_destino, df, cbar)
+                                st.markdown('</div>', unsafe_allow_html=True)
                 else:
                     st.success("🎉 ¡Bolsa vacía! Todas las visitas están asignadas.")
                 
                 st.divider()
-                st.markdown("#### 🔄 Mover Visitas")
+                st.markdown("#### 👷 Cuadrilla Activa")
                 
-                activos_con_carga = sorted(df['TECNICO_FINAL'].unique())
-                opciones_destino = ["-", "⚠️ BOLSA PENDIENTE"] + todos_activos_hoy
-                
-                c1, c2, c3, c4, c5 = st.columns([1.5, 1.5, 1.5, 1, 1])
-                with c1: org = st.selectbox("De:", ["-"] + list(activos_con_carga))
-                with c2: 
-                    if org != "-":
-                        brs = df[df['TECNICO_FINAL']==org][cbar].value_counts()
-                        bar = st.selectbox("Barrio:", [f"{k} ({v})" for k,v in brs.items()])
-                    else: bar=None
-                with c3: dst = st.selectbox("Para:", opciones_destino)
-                with c4:
-                    if bar:
-                        max_cant = int(bar.split("(")[1].replace(")",""))
-                        cant = st.number_input("Cantidad", min_value=1, max_value=max_cant, value=max_cant)
-                    else:
-                        cant = 1
-                with c5:
-                    st.write("")
-                    if st.button("Mover Manualmente", use_container_width=True):
-                        if bar and dst != "-" and org != dst:
-                            rb = bar.rsplit(" (",1)[0]
-                            # Seleccionar la cantidad exacta a mover
-                            idx_to_move = df[(df['TECNICO_FINAL']==org) & (df[cbar]==rb)].head(cant).index
-                            
-                            for idx in idx_to_move:
-                                # Si viene de la bolsa o se asigna manualmente entre técnicos, guardamos origen
-                                # para que aparezca la etiqueta [APOYO] en el PDF, excepto si vuelve a la Bolsa
-                                if dst != "⚠️ BOLSA PENDIENTE" and org == "⚠️ BOLSA PENDIENTE":
-                                    # Cuando sale de la bolsa a un técnico
-                                    df.loc[idx, 'ORIGEN_REAL'] = df.loc[idx, 'TECNICO_IDEAL']
-                                elif dst != "⚠️ BOLSA PENDIENTE" and org != "⚠️ BOLSA PENDIENTE":
-                                    # Cuando se mueve entre técnicos directamente
-                                    df.loc[idx, 'ORIGEN_REAL'] = org
-                                    
-                                df.loc[idx, 'TECNICO_FINAL'] = dst
-                                
-                            st.session_state['df_simulado'] = df
-                            st.rerun()
-                
-                st.divider()
-                st.markdown("#### 👷 Estado de Cuadrilla (Visitas / Cupo Máximo)")
-                # GRID DE VISUALIZACIÓN CON INDICADOR DE CUPO
+                # GRID DE TECNICOS (COMO BOTONES)
                 cls = st.columns(2)
                 for i, t in enumerate(todos_activos_hoy):
                     with cls[i%2]:
@@ -583,17 +598,21 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             
                         with st.expander(titulo_card, expanded=(cantidad > 0)):
                             if cantidad > 0:
-                                r = s.groupby([cbar, 'ORIGEN_REAL'], dropna=False).size().reset_index(name='N')
-                                # Solo mostrar advertencia visual si es realmente apoyo
-                                def format_barrio(row):
-                                    es_apoyo = pd.notna(row['ORIGEN_REAL']) and str(row['ORIGEN_REAL']) != t and row['ORIGEN_REAL'] != "SIN TÉCNICO ACTIVO"
-                                    if es_apoyo: return f"⚠️ {row[cbar]} (Apoyo)"
-                                    return row[cbar]
+                                r = s.groupby([cbar]).size().reset_index(name='N')
+                                
+                                # Botones de barrios dentro del técnico
+                                sub_cols = st.columns(3)
+                                for idx_sub, row_sub in r.iterrows():
+                                    b_name_tech = row_sub[cbar]
+                                    b_count_tech = row_sub['N']
                                     
-                                r['B'] = r.apply(format_barrio, axis=1)
-                                st.dataframe(r[['B','N']], hide_index=True, use_container_width=True)
+                                    with sub_cols[idx_sub % 3]:
+                                        st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
+                                        if st.button(f"📍 {b_name_tech} ({b_count_tech})", key=f"btn_tech_{t}_{idx_sub}"):
+                                            modal_traslado(t, b_name_tech, b_count_tech, opciones_destino, df, cbar)
+                                        st.markdown('</div>', unsafe_allow_html=True)
                             else:
-                                st.caption("Disponible para recibir carga completa de la Bolsa.")
+                                st.caption("Disponible para recibir carga.")
             else: st.info("Sin datos de ruta procesados.")
 
         # --- TAB 4: PUBLICAR ---
