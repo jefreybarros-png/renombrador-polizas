@@ -12,6 +12,7 @@
 #   - Corrección de CSS para soportar Modo Claro (Google White Theme).                  #
 #   - Los excedentes de cupo van a una Bolsa Manual en lugar de reasignarse solos.      #
 #   - Se añade control de "Cantidad" en la Pestaña 3 para mover registros por bloque.   #
+#   - BLINDAJE: Corrección de lectura de Excel para evitar error de columnas duplicadas.#
 #########################################################################################
 
 import streamlit as st
@@ -583,7 +584,12 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             if up_xls and tecnicos_hoy:
                 if up_xls.name.endswith('.csv'): df = pd.read_csv(up_xls, sep=None, engine='python', encoding='utf-8-sig')
                 else: df = pd.read_excel(up_xls)
-                cols = list(df.columns)
+                
+                # --- CORRECCIÓN COLUMNAS DUPLICADAS ---
+                cols = []
+                for c in df.columns:
+                    c_str = str(c).strip()
+                    if c_str not in cols: cols.append(c_str)
                 
                 st.divider()
                 st.markdown("#### Parámetros de Balanceo")
@@ -592,18 +598,22 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 ed_cup = st.data_editor(df_cup, column_config={"Cupo": st.column_config.NumberColumn(min_value=1)}, hide_index=True, use_container_width=True)
                 LIMITES = dict(zip(ed_cup["Técnico"], ed_cup["Cupo"]))
                 
-                def ix(k): 
-                    for i,c in enumerate(cols): 
-                        for x in k: 
-                            if x in str(c).upper(): return i
+                def buscar_col(palabras_clave, opcional=False):
+                    for i, col_name in enumerate(cols):
+                        for palabra in palabras_clave:
+                            if palabra in col_name.upper():
+                                return i + 1 if opcional else i
                     return 0
                 
                 c1, c2, c3 = st.columns(3)
-                sb = c1.selectbox("Barrio", cols, index=ix(['BARRIO']))
-                sd = c2.selectbox("Dirección", cols, index=ix(['DIR','DIRECCION']))
-                sc = c3.selectbox("Cuenta", cols, index=ix(['CUENTA']))
-                sm = st.selectbox("Medidor", ["NO TIENE"]+cols, index=ix(['MEDIDOR'])+1)
-                sl = st.selectbox("Cliente", ["NO TIENE"]+cols, index=ix(['CLIENTE'])+1)
+                sb = c1.selectbox("Barrio", cols, index=buscar_col(['BARRIO']) if cols else 0)
+                sd = c2.selectbox("Dirección", cols, index=buscar_col(['DIR','DIRECCION']) if cols else 0)
+                sc = c3.selectbox("Cuenta", cols, index=buscar_col(['CUENTA']) if cols else 0)
+                
+                opciones_opcionales = ["NO TIENE"] + cols
+                sm = st.selectbox("Medidor", opciones_opcionales, index=buscar_col(['MEDIDOR'], True))
+                sl = st.selectbox("Cliente", opciones_opcionales, index=buscar_col(['CLIENTE'], True))
+                
                 cmap = {'BARRIO': sb, 'DIRECCION': sd, 'CUENTA': sc, 'MEDIDOR': sm if sm!="NO TIENE" else None, 'CLIENTE': sl if sl!="NO TIENE" else None}
                 
                 if st.button("🚀 EJECUTAR BALANCEO Y SEPARAR EXCEDENTES", type="primary"):
