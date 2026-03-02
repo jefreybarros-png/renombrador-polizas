@@ -1,16 +1,17 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 14.2 "BOLSA NARANJA MASIVA"          #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 14.3 "ORDEN REAL & BOLSA PRO"        #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: MARZO 2026                                                                   #
 #                                                                                       #
 #   NOTAS DE ESTA VERSIÓN (NO REDUCIDA, CÓDIGO ÍNTEGRO):                                #
+#   - CORRECCIÓN: La "Tabla Digital" extrae el Número de Orden REAL del Excel de ruta.  #
 #   - Código expandido y detallado. Cero recortes.                                      #
 #   - CSS desplegado línea por línea para fácil edición.                                #
 #   - Compatibilidad total con "OPERARIOS REINSTALACION" (Nombre Unidad/Funcionario).   #
 #   - BOLSAS INTELIGENTES: Subdivisión por dueño original mostrando MOTIVO de envío.    #
 #   - BOTONES NARANJAS exclusivos para identificar la carga en la bolsa pendiente.      #
-#   - NUEVO: Botón MASIVO NARANJA para reasignar toda la bolsa de un técnico a otro.    #
+#   - Botón MASIVO NARANJA para reasignar toda la bolsa de un técnico a otro.           #
 #   - Botones rojos para traslado masivo de cargas completas de técnicos activos.       #
 #   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
@@ -40,7 +41,7 @@ import base64
 
 # Configuración principal de la página
 st.set_page_config(
-    page_title="Logística ITA | v14.2 Pro",
+    page_title="Logística ITA | v14.3 Pro",
     layout="wide",
     page_icon="🚚",
     initial_sidebar_state="expanded"
@@ -201,7 +202,7 @@ st.markdown("""
         transform: scale(1.02) !important;
     }
 
-    /* NUEVO V14.2: Botón MASIVO NARANJA OSCURO para vaciar la bolsa */
+    /* Botón MASIVO NARANJA OSCURO para vaciar la bolsa */
     .btn-masivo-naranja > button:first-child {
         background: #C2410C !important;
         color: white !important;
@@ -358,7 +359,6 @@ def modal_masivo(tecnico_origen, opciones_destino, df_estado):
         else:
             st.error("Por favor, selecciona un operario de destino válido.")
 
-# NUEVA FUNCIÓN V14.2 PARA REASIGNAR LA BOLSA COMPLETA DE UN TÉCNICO
 @st.dialog("🚀 Reasignar Bolsa Completa")
 def modal_reasignar_bolsa(dueno_original, opciones_destino, df_estado):
     """
@@ -572,21 +572,19 @@ def procesar_pdf_polizas_avanzado(file_obj):
 
 def preparar_tabla_digital_excel(df_tec, col_map):
     """
-    FUNCIÓN ESTRICTA DE 5 COLUMNAS:
-    Garantiza que el Excel que recibe el operario SOLO tenga las columnas solicitadas en la imagen:
+    FUNCIÓN ESTRICTA DE 5 COLUMNAS CON ORDEN REAL:
+    Garantiza que el Excel que recibe el operario SOLO tenga las columnas solicitadas en la imagen,
+    pero esta vez extrae el número de Orden real seleccionado por el usuario en lugar de inventar uno.
     [Cuenta, Dirección, Barrio, Orden, TECNICOS]
     """
     df_mini = df_tec.copy().reset_index(drop=True)
     
-    # 1. Crear columna secuencial automática
-    df_mini['Orden'] = df_mini.index + 1
-    
-    # 2. Definir el mapeo de los nombres reales vs los nombres estéticos deseados
+    # 2. Definir el mapeo de los nombres reales de la ruta vs los nombres estéticos para el técnico
     mapping = {
         col_map['CUENTA']: 'Cuenta',
         col_map['DIRECCION']: 'Dirección',
         col_map['BARRIO']: 'Barrio',
-        'Orden': 'Orden',
+        col_map['ORDEN']: 'Orden',       # AHORA MAPEA LA COLUMNA DE ORDEN VERDADERA
         'TECNICO_FINAL': 'TECNICOS'
     }
     
@@ -596,7 +594,7 @@ def preparar_tabla_digital_excel(df_tec, col_map):
     # 4. Renombrar
     df_final = df_mini[list(cols_presentes.keys())].rename(columns=cols_presentes)
     
-    # 5. Ordenar las columnas explícitamente según requerimiento
+    # 5. Ordenar las columnas explícitamente según requerimiento de la imagen
     orden_deseado = ['Cuenta', 'Dirección', 'Barrio', 'Orden', 'TECNICOS']
     df_resultado = df_final[[c for c in orden_deseado if c in df_final.columns]]
     
@@ -719,7 +717,7 @@ with st.sidebar:
             st.markdown("""<div class="locked-msg">🔒 ACCESO RESTRINGIDO<br>Inicia sesión como administrador.</div>""", unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión Documental v14.2")
+        st.info("Bienvenido al Portal de Autogestión Documental v14.3")
 
     st.markdown("---")
     st.caption("Plataforma Logística Integral ITA | 2026")
@@ -809,7 +807,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
     else:
         col_tit, col_logout = st.columns([4, 1])
         with col_tit: 
-            st.markdown("## ⚙️ Centro de Comando Logístico v14.2")
+            st.markdown("## ⚙️ Centro de Comando Logístico v14.3")
         with col_logout:
             if st.button("Cerrar Sesión Segura"):
                 st.session_state['admin_logged_in'] = False
@@ -942,22 +940,30 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 return i + 1 if opcional else i
                     return 0
                 
-                st.markdown("#### Mapeo de Columnas")
-                col_sel_1, col_sel_2, col_sel_3 = st.columns(3)
+                st.markdown("#### Mapeo de Columnas Principales")
                 
-                sel_barrio = col_sel_1.selectbox("Columna de Barrio", cols_limpias, index=buscar_columna_inteligente(['BARRIO', 'ZONA', 'UNIDAD']))
-                sel_dir = col_sel_2.selectbox("Columna de Dirección", cols_limpias, index=buscar_columna_inteligente(['DIR','DIRECCION', 'UBICACION']))
-                sel_cuenta = col_sel_3.selectbox("Columna de Cuenta", cols_limpias, index=buscar_columna_inteligente(['CUENTA', 'CONTRATO', 'CODIGO']))
+                # ==================================================================================
+                # NUEVO EN V14.3: SE AÑADE EL SELECTOR DE 'ORDEN' DE 4 COLUMNAS PARA EXTRACTAR EL DATO REAL
+                # ==================================================================================
+                col_sel_1, col_sel_2, col_sel_3, col_sel_4 = st.columns(4)
                 
+                sel_barrio = col_sel_1.selectbox("Columna Barrio", cols_limpias, index=buscar_columna_inteligente(['BARRIO', 'ZONA', 'UNIDAD']))
+                sel_dir = col_sel_2.selectbox("Columna Dirección", cols_limpias, index=buscar_columna_inteligente(['DIR','DIRECCION', 'UBICACION']))
+                sel_cuenta = col_sel_3.selectbox("Columna Cuenta", cols_limpias, index=buscar_columna_inteligente(['CUENTA', 'CONTRATO', 'CODIGO']))
+                sel_orden = col_sel_4.selectbox("Columna Orden (Real)", cols_limpias, index=buscar_columna_inteligente(['ORDEN', 'PEDIDO', 'TICKET', 'SERVICIO']))
+                
+                st.markdown("#### Columnas Opcionales")
                 opciones_nulas = ["NO TIENE"] + cols_limpias
-                col_sel_4, col_sel_5 = st.columns(2)
-                sel_medidor = col_sel_4.selectbox("Columna de Medidor", opciones_nulas, index=buscar_columna_inteligente(['MEDIDOR', 'APARATO', 'SERIAL'], True))
-                sel_cliente = col_sel_5.selectbox("Columna de Cliente", opciones_nulas, index=buscar_columna_inteligente(['CLIENTE', 'NOMBRE', 'USUARIO'], True))
+                col_sel_5, col_sel_6 = st.columns(2)
+                sel_medidor = col_sel_5.selectbox("Columna Medidor", opciones_nulas, index=buscar_columna_inteligente(['MEDIDOR', 'APARATO', 'SERIAL'], True))
+                sel_cliente = col_sel_6.selectbox("Columna Cliente", opciones_nulas, index=buscar_columna_inteligente(['CLIENTE', 'NOMBRE', 'USUARIO'], True))
                 
+                # Actualizamos el mapa para incluir la columna de ORDEN seleccionada
                 mapa_columnas = {
                     'BARRIO': sel_barrio, 
                     'DIRECCION': sel_dir, 
                     'CUENTA': sel_cuenta, 
+                    'ORDEN': sel_orden,
                     'MEDIDOR': sel_medidor if sel_medidor != "NO TIENE" else None, 
                     'CLIENTE': sel_cliente if sel_cliente != "NO TIENE" else None
                 }
@@ -1046,7 +1052,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         with st.expander(f"📦 ZONA MAESTRA: {dueno_maestro} ({len(datos_bolsa_dueno)} visitas en espera)", expanded=True):
                             st.markdown(f'<div class="bolsa-card"><b>Origen:</b> Zona de {dueno_maestro}<br><b>Motivo de retención:</b> {motivos_unidos}</div>', unsafe_allow_html=True)
                             
-                            # --- NUEVO EN V14.2: BOTÓN MASIVO NARANJA PARA REASIGNAR LA BOLSA COMPLETA ---
+                            # BOTÓN MASIVO NARANJA PARA REASIGNAR LA BOLSA COMPLETA
                             st.markdown('<div class="btn-masivo-naranja">', unsafe_allow_html=True)
                             if st.button(f"🚀 REASIGNAR TODA LA BOLSA DE {dueno_maestro}", key=f"btn_masivo_bolsa_{dueno_maestro}"):
                                 modal_reasignar_bolsa(dueno_maestro, cuadrilla_presente, dataframe_matriz)
@@ -1162,7 +1168,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 with open(os.path.join(ruta_carpeta, "1_HOJA_DE_RUTA.pdf"), "wb") as f_pdf_ruta:
                                     f_pdf_ruta.write(crear_pdf_lista_final(dt_operario, nombre_operario, conf_columnas))
                                 
-                                # ARTEFACTO 2: Tabla Digital Excel (REGLA EXTRICTA 5 COLUMNAS)
+                                # ARTEFACTO 2: Tabla Digital Excel (REGLA EXTRICTA 5 COLUMNAS CON ORDEN REAL)
                                 df_5_columnas = preparar_tabla_digital_excel(dt_operario, conf_columnas)
                                 with pd.ExcelWriter(os.path.join(ruta_carpeta, "2_TABLA_DIGITAL.xlsx"), engine='xlsxwriter') as w_excel: 
                                     df_5_columnas.to_excel(w_excel, index=False)
@@ -1262,7 +1268,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                     # Ruta PDF
                                     archivo_z.writestr(f"{folder_name}/1_HOJA_DE_RUTA.pdf", crear_pdf_lista_final(datos_tech, tech_name, conf_columnas))
                                     
-                                    # Tabla Digital 5 Columnas
+                                    # Tabla Digital 5 Columnas (Ahora saca el ORDEN VERDADERO)
                                     buffer_tech_xls = io.BytesIO()
                                     df_tech_5col = preparar_tabla_digital_excel(datos_tech, conf_columnas)
                                     with pd.ExcelWriter(buffer_tech_xls, engine='xlsxwriter') as wr_tech: 
