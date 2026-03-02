@@ -1,14 +1,15 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 14.0 "EDICIÓN EXTENDIDA Y PRO"       #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 14.1 "BOLSA NARANJA PRO"             #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: MARZO 2026                                                                   #
 #                                                                                       #
-#   NOTAS DE ESTA VERSIÓN (NO REDUCIDA):                                                #
-#   - Código expandido y detallado con comentarios paso a paso.                         #
+#   NOTAS DE ESTA VERSIÓN (NO REDUCIDA, CÓDIGO ÍNTEGRO):                                #
+#   - Código expandido y detallado. Cero recortes.                                      #
 #   - CSS desplegado línea por línea para fácil edición.                                #
 #   - Compatibilidad total con "OPERARIOS REINSTALACION" (Nombre Unidad/Funcionario).   #
-#   - Tablero Kanban con "Bolsa Inteligente" (rastrea el origen real).                  #
+#   - BOLSAS INTELIGENTES: Subdivisión por dueño original mostrando MOTIVO de envío.    #
+#   - BOTONES NARANJAS exclusivos para identificar la carga en la bolsa pendiente.      #
 #   - Botones rojos para traslado masivo de cargas completas.                           #
 #   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
@@ -33,18 +34,18 @@ import time
 import base64
 
 # =======================================================================================
-# SECCIÓN 1: CONFIGURACIÓN VISUAL Y VARIABLES DE SESIÓN (EXPANDIDO)
+# SECCIÓN 1: CONFIGURACIÓN VISUAL Y VARIABLES DE SESIÓN
 # =======================================================================================
 
 # Configuración principal de la página
 st.set_page_config(
-    page_title="Logística ITA | v14.0 Pro",
+    page_title="Logística ITA | v14.1 Pro",
     layout="wide",
     page_icon="🚚",
     initial_sidebar_state="expanded"
 )
 
-# Inicialización detallada de Variables de Sesión (Sin resumir)
+# Inicialización detallada de Variables de Sesión
 if 'admin_logged_in' not in st.session_state:
     st.session_state['admin_logged_in'] = False
 
@@ -75,7 +76,7 @@ if 'ultimo_archivo_procesado' not in st.session_state:
 if 'limites_cupo' not in st.session_state:
     st.session_state['limites_cupo'] = {}
 
-# Inyección de CSS (Expandida línea por línea para mayor claridad)
+# Inyección de CSS 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
@@ -157,7 +158,7 @@ st.markdown("""
         background: linear-gradient(135deg, #10B981 0%, #059669 100%); 
     }
 
-    /* Botones pequeños interactivos para los barrios (Tablero) */
+    /* Botones pequeños interactivos AZULES para los operarios activos */
     .btn-barrio > button:first-child {
         background: transparent !important;
         color: #0284C7 !important;
@@ -178,7 +179,28 @@ st.markdown("""
         transform: scale(1.02) !important;
     }
 
-    /* ESTILOS NUEVOS: Botón de traslado masivo */
+    /* NUEVO V14.1: Botones pequeños NARANJAS exclusivos para la Bolsa Pendiente */
+    .btn-bolsa-naranja > button:first-child {
+        background: transparent !important;
+        color: #EA580C !important;
+        border: 2px solid #EA580C !important;
+        border-radius: 8px !important;
+        height: auto !important;
+        padding: 5px 10px !important;
+        font-size: 13px !important;
+        text-transform: none !important;
+        font-weight: 600 !important;
+        margin-bottom: 5px !important;
+        box-shadow: none !important;
+        width: 100%;
+    }
+    
+    .btn-bolsa-naranja > button:first-child:hover {
+        background: #FFF7ED !important;
+        transform: scale(1.02) !important;
+    }
+
+    /* Botón ROJO de traslado masivo */
     .btn-masivo > button:first-child {
         background: #DC2626 !important;
         color: white !important;
@@ -196,13 +218,13 @@ st.markdown("""
         transform: translateY(-1px);
     }
     
-    /* ESTILOS NUEVOS: Tarjeta de la Bolsa Inteligente */
+    /* Tarjeta informativa de la Bolsa Inteligente */
     .bolsa-card {
-        background-color: #FFF1F2;
-        color: #9F1239;
+        background-color: #FFF7ED; /* Fondo naranja clarito */
+        color: #9A3412; /* Texto naranja oscuro */
         padding: 12px 15px;
         border-radius: 8px;
-        border-left: 6px solid #E11D48;
+        border-left: 6px solid #EA580C; /* Borde izquierdo naranja */
         font-weight: bold;
         margin-bottom: 12px;
         font-size: 14px;
@@ -419,7 +441,7 @@ def buscar_tecnico_exacto(barrio_input, mapa_barrios):
 def cargar_maestro_dinamico(file):
     """
     Lee el archivo maestro.
-    ACTUALIZADO: Reconoce el archivo 'OPERARIOS REINSTALACION' buscando columnas 
+    Reconoce el archivo 'OPERARIOS REINSTALACION' buscando columnas 
     como 'Nombre Unidad' (como Barrio) y 'Nombre funcionarios' (como Técnico).
     """
     mapa = {}
@@ -647,7 +669,7 @@ with st.sidebar:
             st.markdown("""<div class="locked-msg">🔒 ACCESO RESTRINGIDO<br>Inicia sesión como administrador.</div>""", unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión Documental v14.0")
+        st.info("Bienvenido al Portal de Autogestión Documental v14.1")
 
     st.markdown("---")
     st.caption("Plataforma Logística Integral ITA | 2026")
@@ -737,7 +759,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
     else:
         col_tit, col_logout = st.columns([4, 1])
         with col_tit: 
-            st.markdown("## ⚙️ Centro de Comando Logístico v14.0")
+            st.markdown("## ⚙️ Centro de Comando Logístico v14.1")
         with col_logout:
             if st.button("Cerrar Sesión Segura"):
                 st.session_state['admin_logged_in'] = False
@@ -911,7 +933,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     # 3. Aplicación de Reglas de Negocio (Ausencias)
                     # Si el técnico no vino hoy, va para la bolsa
                     mascara_ausentes = ~df_procesamiento['TECNICO_FINAL'].isin(tecnicos_hoy)
-                    df_procesamiento.loc[mascara_ausentes, 'ORIGEN_REAL'] = "SIN TÉCNICO ACTIVO"
+                    df_procesamiento.loc[mascara_ausentes, 'ORIGEN_REAL'] = "TÉCNICO INACTIVO/AUSENTE"
                     df_procesamiento.loc[mascara_ausentes, 'TECNICO_FINAL'] = "⚠️ BOLSA PENDIENTE"
                     
                     # 4. Aplicación de Reglas de Negocio (Sobrecarga / Cupos)
@@ -924,7 +946,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             # Tomar los últimos registros como excedente
                             indices_a_mover = indices_del_tecnico[-excedente_cantidad:]
                             
-                            df_procesamiento.loc[indices_a_mover, 'ORIGEN_REAL'] = f"EXCEDE CUPO ({tecnico_activo})"
+                            df_procesamiento.loc[indices_a_mover, 'ORIGEN_REAL'] = "EXCEDE CUPO MÁXIMO"
                             df_procesamiento.loc[indices_a_mover, 'TECNICO_FINAL'] = "⚠️ BOLSA PENDIENTE"
 
                     # Guardar en memoria
@@ -955,18 +977,24 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 opciones_para_destino = ["⚠️ BOLSA PENDIENTE"] + cuadrilla_presente
 
                 # -------------------------------------------------------------------
-                # SECCIÓN 3.1: BOLSA PENDIENTE INTELIGENTE (AGRUPADA POR DUEÑO)
+                # SECCIÓN 3.1: BOLSA PENDIENTE INTELIGENTE (AGRUPADA Y CON BOTONES NARANJAS)
                 # -------------------------------------------------------------------
                 visitas_huerfanas = dataframe_matriz[dataframe_matriz['TECNICO_FINAL'] == "⚠️ BOLSA PENDIENTE"]
                 
                 if not visitas_huerfanas.empty:
                     st.markdown("#### 🚨 Carga Pendiente en Despacho")
+                    
                     # Agrupar las visitas de la bolsa por el campo 'TECNICO_IDEAL' para saber de quién eran
                     agrupacion_bolsas = visitas_huerfanas.groupby('TECNICO_IDEAL')
                     
                     for dueno_maestro, datos_bolsa_dueno in agrupacion_bolsas:
+                        
+                        # Extraer los motivos reales por los cuales esta carga se fue a la bolsa (Inactivo o Cupo)
+                        lista_motivos = [str(m) for m in datos_bolsa_dueno['ORIGEN_REAL'].unique() if pd.notna(m)]
+                        motivos_unidos = " y ".join(lista_motivos) if lista_motivos else "Asignación Manual a Bolsa"
+                        
                         with st.expander(f"📦 ZONA MAESTRA: {dueno_maestro} ({len(datos_bolsa_dueno)} visitas en espera)", expanded=True):
-                            st.markdown(f'<div class="bolsa-card">ℹ️ Estas visitas pertenecen originalmente a la zona de <b>{dueno_maestro}</b>.</div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="bolsa-card"><b>Origen:</b> Zona de {dueno_maestro}<br><b>Motivo de retención:</b> {motivos_unidos}</div>', unsafe_allow_html=True)
                             
                             resumen_agrupado = datos_bolsa_dueno.groupby([columna_barrio_nombre]).size().reset_index(name='TOTAL')
                             columnas_grid_bolsa = st.columns(6)
@@ -976,7 +1004,8 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 cantidad_b = fila_barrio['TOTAL']
                                 
                                 with columnas_grid_bolsa[indice_b % 6]:
-                                    st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
+                                    # USAMOS LA CLASE NARANJA AQUÍ
+                                    st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
                                     if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{indice_b}"):
                                         modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
                                     st.markdown('</div>', unsafe_allow_html=True)
@@ -986,7 +1015,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 st.divider()
                 
                 # -------------------------------------------------------------------
-                # SECCIÓN 3.2: CUADRILLA ACTIVA (TABLERO PRINCIPAL)
+                # SECCIÓN 3.2: CUADRILLA ACTIVA (TABLERO PRINCIPAL CON BOTONES AZULES Y ROJOS)
                 # -------------------------------------------------------------------
                 st.markdown("#### 👷 Asignación Actual en Terreno")
                 
@@ -1011,7 +1040,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         with st.expander(titulo_acordeon, expanded=(visitas_asignadas > 0)):
                             if visitas_asignadas > 0:
                                 
-                                # BOTÓN DE VACIADO MASIVO V14.0
+                                # BOTÓN DE VACIADO MASIVO 
                                 st.markdown('<div class="btn-masivo">', unsafe_allow_html=True)
                                 if st.button(f"🔴 TRASLADAR TODA LA CARGA DE {nombre_tecnico}", key=f"btn_masivo_vaciar_{nombre_tecnico}"):
                                     modal_masivo(nombre_tecnico, opciones_para_destino, dataframe_matriz)
@@ -1026,6 +1055,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                     numero_barrio = fila_b_tecnico['CANTIDAD']
                                     
                                     with grid_barrios[index_barrio % 3]:
+                                        # USAMOS LA CLASE AZUL AQUÍ
                                         st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
                                         if st.button(f"📍 {texto_barrio} ({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{index_barrio}"):
                                             modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
