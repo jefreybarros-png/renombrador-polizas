@@ -1,6 +1,6 @@
 #########################################################################################
 #                                                                                       #
-#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 14.1 "BOLSA NARANJA PRO"             #
+#   PLATAFORMA INTEGRAL DE LOGÍSTICA ITA - VERSIÓN 14.2 "BOLSA NARANJA MASIVA"          #
 #   AUTOR: YEFREY                                                                       #
 #   FECHA: MARZO 2026                                                                   #
 #                                                                                       #
@@ -10,7 +10,8 @@
 #   - Compatibilidad total con "OPERARIOS REINSTALACION" (Nombre Unidad/Funcionario).   #
 #   - BOLSAS INTELIGENTES: Subdivisión por dueño original mostrando MOTIVO de envío.    #
 #   - BOTONES NARANJAS exclusivos para identificar la carga en la bolsa pendiente.      #
-#   - Botones rojos para traslado masivo de cargas completas.                           #
+#   - NUEVO: Botón MASIVO NARANJA para reasignar toda la bolsa de un técnico a otro.    #
+#   - Botones rojos para traslado masivo de cargas completas de técnicos activos.       #
 #   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
 #                                                                                       #
@@ -39,7 +40,7 @@ import base64
 
 # Configuración principal de la página
 st.set_page_config(
-    page_title="Logística ITA | v14.1 Pro",
+    page_title="Logística ITA | v14.2 Pro",
     layout="wide",
     page_icon="🚚",
     initial_sidebar_state="expanded"
@@ -76,7 +77,7 @@ if 'ultimo_archivo_procesado' not in st.session_state:
 if 'limites_cupo' not in st.session_state:
     st.session_state['limites_cupo'] = {}
 
-# Inyección de CSS 
+# Inyección de CSS (Expandida línea por línea)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
@@ -179,7 +180,7 @@ st.markdown("""
         transform: scale(1.02) !important;
     }
 
-    /* NUEVO V14.1: Botones pequeños NARANJAS exclusivos para la Bolsa Pendiente */
+    /* Botones pequeños NARANJAS exclusivos para barrios en la Bolsa Pendiente */
     .btn-bolsa-naranja > button:first-child {
         background: transparent !important;
         color: #EA580C !important;
@@ -200,7 +201,25 @@ st.markdown("""
         transform: scale(1.02) !important;
     }
 
-    /* Botón ROJO de traslado masivo */
+    /* NUEVO V14.2: Botón MASIVO NARANJA OSCURO para vaciar la bolsa */
+    .btn-masivo-naranja > button:first-child {
+        background: #C2410C !important;
+        color: white !important;
+        font-size: 13px !important;
+        height: 40px !important;
+        margin-bottom: 12px !important;
+        border: 2px solid #9A3412 !important;
+        border-radius: 8px !important;
+        font-weight: 800 !important;
+        width: 100%;
+    }
+    
+    .btn-masivo-naranja > button:first-child:hover { 
+        background: #9A3412 !important; 
+        transform: translateY(-1px);
+    }
+
+    /* Botón ROJO de traslado masivo para técnicos activos */
     .btn-masivo > button:first-child {
         background: #DC2626 !important;
         color: white !important;
@@ -220,11 +239,11 @@ st.markdown("""
     
     /* Tarjeta informativa de la Bolsa Inteligente */
     .bolsa-card {
-        background-color: #FFF7ED; /* Fondo naranja clarito */
-        color: #9A3412; /* Texto naranja oscuro */
+        background-color: #FFF7ED;
+        color: #9A3412;
         padding: 12px 15px;
         border-radius: 8px;
-        border-left: 6px solid #EA580C; /* Borde izquierdo naranja */
+        border-left: 6px solid #EA580C;
         font-weight: bold;
         margin-bottom: 12px;
         font-size: 14px;
@@ -313,7 +332,7 @@ def modal_traslado(origen, barrio_limpio, max_cant, opciones_destino, df_estado,
 @st.dialog("🚀 Traslado Masivo (Vaciado de Carga)")
 def modal_masivo(tecnico_origen, opciones_destino, df_estado):
     """
-    Modal de emergencia para mover absolutamente TODA la carga de un técnico
+    Modal de emergencia para mover absolutamente TODA la carga de un TÉCNICO ACTIVO
     a un compañero o a la bolsa en un solo clic.
     """
     st.warning(f"⚠️ ESTÁS A PUNTO DE MOVER TODAS LAS VISITAS ASIGNADAS A: **{tecnico_origen}**")
@@ -338,6 +357,37 @@ def modal_masivo(tecnico_origen, opciones_destino, df_estado):
             st.rerun()
         else:
             st.error("Por favor, selecciona un operario de destino válido.")
+
+# NUEVA FUNCIÓN V14.2 PARA REASIGNAR LA BOLSA COMPLETA DE UN TÉCNICO
+@st.dialog("🚀 Reasignar Bolsa Completa")
+def modal_reasignar_bolsa(dueno_original, opciones_destino, df_estado):
+    """
+    Modal para mover TODA la bolsa pendiente que le pertenecía a un técnico inactivo.
+    """
+    st.warning(f"⚠️ Vas a reasignar TODA la carga pendiente que era originalmente de: **{dueno_original}**")
+    st.write("Se enviarán todos estos barrios al operario que selecciones.")
+    
+    dst = st.selectbox("Seleccionar Nuevo Operario Destino:", ["-- Seleccionar --"] + opciones_destino)
+    
+    if st.button("EJECUTAR REASIGNACIÓN TOTAL", type="primary"):
+        # No permitimos mover a la misma bolsa
+        if dst != "-- Seleccionar --" and dst != "⚠️ BOLSA PENDIENTE":
+            df_work = df_estado.copy()
+            
+            # Buscar todo lo que esté en la bolsa Y que pertenezca a este dueño ideal
+            mask = (df_work['TECNICO_FINAL'] == "⚠️ BOLSA PENDIENTE") & (df_work['TECNICO_IDEAL'] == dueno_original)
+            idx_to_move = df_work[mask].index
+            
+            for idx in idx_to_move:
+                # Guardamos el origen real (de dónde viene verdaderamente)
+                df_work.loc[idx, 'ORIGEN_REAL'] = dueno_original
+                # Asignamos al nuevo destino
+                df_work.loc[idx, 'TECNICO_FINAL'] = dst
+                
+            st.session_state['df_simulado'] = df_work
+            st.rerun()
+        else:
+            st.error("Por favor, selecciona un operario destino válido (No puedes enviarlo a la bolsa de nuevo).")
 
 # =======================================================================================
 # SECCIÓN 3: GESTIÓN DEL SISTEMA DE ARCHIVOS Y CARPETAS PÚBLICAS
@@ -669,7 +719,7 @@ with st.sidebar:
             st.markdown("""<div class="locked-msg">🔒 ACCESO RESTRINGIDO<br>Inicia sesión como administrador.</div>""", unsafe_allow_html=True)
 
     elif modo_acceso == "👷 TÉCNICO":
-        st.info("Bienvenido al Portal de Autogestión Documental v14.1")
+        st.info("Bienvenido al Portal de Autogestión Documental v14.2")
 
     st.markdown("---")
     st.caption("Plataforma Logística Integral ITA | 2026")
@@ -759,7 +809,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
     else:
         col_tit, col_logout = st.columns([4, 1])
         with col_tit: 
-            st.markdown("## ⚙️ Centro de Comando Logístico v14.1")
+            st.markdown("## ⚙️ Centro de Comando Logístico v14.2")
         with col_logout:
             if st.button("Cerrar Sesión Segura"):
                 st.session_state['admin_logged_in'] = False
@@ -962,7 +1012,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
         # -------------------------------------------------------------------------------
         with tab3:
             st.markdown("### 🛠️ Matriz Operativa de Traslados")
-            st.info("💡 Interfaz: Haz clic en el botón de un barrio para mover la cantidad deseada, o usa el botón **ROJO** para enviar toda la ruta de un técnico a otro.")
+            st.info("💡 Interfaz: Haz clic en el botón de un barrio para mover la cantidad deseada, o usa el botón para mover cargas completas.")
             
             if st.session_state['df_simulado'] is not None:
                 dataframe_matriz = st.session_state['df_simulado']
@@ -977,7 +1027,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 opciones_para_destino = ["⚠️ BOLSA PENDIENTE"] + cuadrilla_presente
 
                 # -------------------------------------------------------------------
-                # SECCIÓN 3.1: BOLSA PENDIENTE INTELIGENTE (AGRUPADA Y CON BOTONES NARANJAS)
+                # SECCIÓN 3.1: BOLSA PENDIENTE INTELIGENTE (AGRUPADA, NARANJA Y CON BOTÓN MASIVO)
                 # -------------------------------------------------------------------
                 visitas_huerfanas = dataframe_matriz[dataframe_matriz['TECNICO_FINAL'] == "⚠️ BOLSA PENDIENTE"]
                 
@@ -996,6 +1046,12 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         with st.expander(f"📦 ZONA MAESTRA: {dueno_maestro} ({len(datos_bolsa_dueno)} visitas en espera)", expanded=True):
                             st.markdown(f'<div class="bolsa-card"><b>Origen:</b> Zona de {dueno_maestro}<br><b>Motivo de retención:</b> {motivos_unidos}</div>', unsafe_allow_html=True)
                             
+                            # --- NUEVO EN V14.2: BOTÓN MASIVO NARANJA PARA REASIGNAR LA BOLSA COMPLETA ---
+                            st.markdown('<div class="btn-masivo-naranja">', unsafe_allow_html=True)
+                            if st.button(f"🚀 REASIGNAR TODA LA BOLSA DE {dueno_maestro}", key=f"btn_masivo_bolsa_{dueno_maestro}"):
+                                modal_reasignar_bolsa(dueno_maestro, cuadrilla_presente, dataframe_matriz)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                            
                             resumen_agrupado = datos_bolsa_dueno.groupby([columna_barrio_nombre]).size().reset_index(name='TOTAL')
                             columnas_grid_bolsa = st.columns(6)
                             
@@ -1004,7 +1060,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 cantidad_b = fila_barrio['TOTAL']
                                 
                                 with columnas_grid_bolsa[indice_b % 6]:
-                                    # USAMOS LA CLASE NARANJA AQUÍ
+                                    # USAMOS LA CLASE NARANJA PARA LOS BARRIOS INDIVIDUALES
                                     st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
                                     if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{indice_b}"):
                                         modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
@@ -1040,7 +1096,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         with st.expander(titulo_acordeon, expanded=(visitas_asignadas > 0)):
                             if visitas_asignadas > 0:
                                 
-                                # BOTÓN DE VACIADO MASIVO 
+                                # BOTÓN DE VACIADO MASIVO ROJO PARA TÉCNICOS ACTIVOS
                                 st.markdown('<div class="btn-masivo">', unsafe_allow_html=True)
                                 if st.button(f"🔴 TRASLADAR TODA LA CARGA DE {nombre_tecnico}", key=f"btn_masivo_vaciar_{nombre_tecnico}"):
                                     modal_masivo(nombre_tecnico, opciones_para_destino, dataframe_matriz)
