@@ -15,6 +15,7 @@
 #   - Botones rojos para traslado masivo de cargas completas de técnicos activos.       #
 #   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
+#   - CONSERVACIÓN DE ORDEN (V74): Mantiene intacto el orden original del maestro.      #
 #                                                                                       #
 #########################################################################################
 
@@ -324,6 +325,9 @@ def modal_traslado(origen, barrio_limpio, max_cant, opciones_destino, df_estado,
                 # Aplicamos el cambio final
                 df_work.loc[idx, 'TECNICO_FINAL'] = dst
                 
+            # === REORGANIZACIÓN AUTOMÁTICA (Conserva Orden Motor V74) ===
+            df_work = reordenar_operacion_global(df_work, st.session_state.get('col_map_final', {}))
+            
             # Actualizamos la memoria global y refrescamos
             st.session_state['df_simulado'] = df_work
             st.rerun()
@@ -354,6 +358,9 @@ def modal_masivo(tecnico_origen, opciones_destino, df_estado):
                 # Asignamos al nuevo destino
                 df_work.loc[idx, 'TECNICO_FINAL'] = dst
                 
+            # === REORGANIZACIÓN AUTOMÁTICA (Conserva Orden Motor V74) ===
+            df_work = reordenar_operacion_global(df_work, st.session_state.get('col_map_final', {}))
+            
             st.session_state['df_simulado'] = df_work
             st.rerun()
         else:
@@ -384,6 +391,9 @@ def modal_reasignar_bolsa(dueno_original, opciones_destino, df_estado):
                 # Asignamos al nuevo destino
                 df_work.loc[idx, 'TECNICO_FINAL'] = dst
                 
+            # === REORGANIZACIÓN AUTOMÁTICA (Conserva Orden Motor V74) ===
+            df_work = reordenar_operacion_global(df_work, st.session_state.get('col_map_final', {}))
+            
             st.session_state['df_simulado'] = df_work
             st.rerun()
         else:
@@ -599,6 +609,25 @@ def preparar_tabla_digital_excel(df_tec, col_map):
     df_resultado = df_final[[c for c in orden_deseado if c in df_final.columns]]
     
     return df_resultado
+
+def reordenar_operacion_global(df_estado, col_map):
+    """
+    Organiza automáticamente los registros conservando el orden original del Motor V74
+    (que venía en la planilla de Excel), agrupando primero por Técnico y luego por Barrio.
+    Garantiza que no se desorganice ninguna ruta al mover barrios de la bolsa.
+    """
+    df_w = df_estado.copy()
+    if col_map and 'BARRIO' in col_map:
+        col_barrio = col_map['BARRIO']
+        
+        # Garantizar que se respete el orden nativo con el que subieron el archivo
+        if 'ORDEN_ORIGINAL' in df_w.columns:
+            df_w = df_w.sort_values(by=['TECNICO_FINAL', col_barrio, 'ORDEN_ORIGINAL'])
+        else:
+            df_w = df_w.sort_values(by=['TECNICO_FINAL', col_barrio])
+            
+        df_w = df_w.reset_index(drop=True)
+    return df_w
 
 # =======================================================================================
 # SECCIÓN 5: GENERACIÓN DE HOJA DE RUTA FÍSICA (PDF)
@@ -942,9 +971,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 
                 st.markdown("#### Mapeo de Columnas Principales")
                 
-                # ==================================================================================
-                # NUEVO EN V14.3: SE AÑADE EL SELECTOR DE 'ORDEN' DE 4 COLUMNAS PARA EXTRACTAR EL DATO REAL
-                # ==================================================================================
                 col_sel_1, col_sel_2, col_sel_3, col_sel_4 = st.columns(4)
                 
                 sel_barrio = col_sel_1.selectbox("Columna Barrio", cols_limpias, index=buscar_columna_inteligente(['BARRIO', 'ZONA', 'UNIDAD']))
@@ -958,7 +984,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 sel_medidor = col_sel_5.selectbox("Columna Medidor", opciones_nulas, index=buscar_columna_inteligente(['MEDIDOR', 'APARATO', 'SERIAL'], True))
                 sel_cliente = col_sel_6.selectbox("Columna Cliente", opciones_nulas, index=buscar_columna_inteligente(['CLIENTE', 'NOMBRE', 'USUARIO'], True))
                 
-                # Actualizamos el mapa para incluir la columna de ORDEN seleccionada
                 mapa_columnas = {
                     'BARRIO': sel_barrio, 
                     'DIRECCION': sel_dir, 
@@ -970,7 +995,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 
                 # BOTÓN DE EJECUCIÓN PRINCIPAL
                 if st.button("🚀 INICIAR ALGORITMO DE DISTRIBUCIÓN", type="primary"):
-                    # Verificar si subió PDF pero no lo procesó
                     if up_pdf and not st.session_state['mapa_polizas_cargado']:
                         st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
                     
@@ -981,13 +1005,13 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     df_procesamiento['TECNICO_IDEAL'] = df_procesamiento[sel_barrio].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
                     df_procesamiento['TECNICO_FINAL'] = df_procesamiento['TECNICO_IDEAL']
                     df_procesamiento['ORIGEN_REAL'] = None
+                    # CLAVE: MEMORIZAMOS EL ORDEN V74 DE TU ARCHIVO
+                    df_procesamiento['ORDEN_ORIGINAL'] = range(len(df_procesamiento))
                     
-                    # 2. Ordenamiento Geográfico (Alfabético natural por dirección)
-                    df_procesamiento['SORT_KEY'] = df_procesamiento[sel_dir].astype(str).apply(natural_sort_key)
-                    df_procesamiento = df_procesamiento.sort_values(by=[sel_barrio, 'SORT_KEY'])
+                    # 2. Ordenamiento Geográfico (Respetando el motor V74 original)
+                    df_procesamiento = df_procesamiento.sort_values(by=[sel_barrio, 'ORDEN_ORIGINAL'])
 
                     # 3. Aplicación de Reglas de Negocio (Ausencias)
-                    # Si el técnico no vino hoy, va para la bolsa
                     mascara_ausentes = ~df_procesamiento['TECNICO_FINAL'].isin(tecnicos_hoy)
                     df_procesamiento.loc[mascara_ausentes, 'ORIGEN_REAL'] = "TÉCNICO INACTIVO/AUSENTE"
                     df_procesamiento.loc[mascara_ausentes, 'TECNICO_FINAL'] = "⚠️ BOLSA PENDIENTE"
@@ -999,16 +1023,26 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         
                         if len(indices_del_tecnico) > capacidad_max:
                             excedente_cantidad = len(indices_del_tecnico) - capacidad_max
-                            # Tomar los últimos registros como excedente
+                            
+                            # === INICIO DE INYECCIÓN LÓGICA DE VOLUMEN ===
+                            df_tec_temp = df_procesamiento.loc[indices_del_tecnico].copy()
+                            mapa_vol = df_tec_temp[sel_barrio].value_counts().to_dict()
+                            df_tec_temp['VOL_TEMP'] = df_tec_temp[sel_barrio].map(mapa_vol)
+                            indices_del_tecnico = df_tec_temp.sort_values(by=['VOL_TEMP', sel_barrio], ascending=[False, True]).index.tolist()
+                            # === FIN DE INYECCIÓN LÓGICA DE VOLUMEN ===
+
                             indices_a_mover = indices_del_tecnico[-excedente_cantidad:]
                             
                             df_procesamiento.loc[indices_a_mover, 'ORIGEN_REAL'] = "EXCEDE CUPO MÁXIMO"
                             df_procesamiento.loc[indices_a_mover, 'TECNICO_FINAL'] = "⚠️ BOLSA PENDIENTE"
 
+                    # === REORGANIZACIÓN GLOBAL AUTOMÁTICA ===
+                    df_final_procesado = reordenar_operacion_global(df_procesamiento, mapa_columnas)
+
                     # Guardar en memoria
-                    st.session_state['df_simulado'] = df_procesamiento.drop(columns=['SORT_KEY'])
+                    st.session_state['df_simulado'] = df_final_procesado
                     st.session_state['col_map_final'] = mapa_columnas
-                    st.success("✅ Algoritmo completado. Dirígete a la Pestaña 3 para el Ajuste Logístico Manual.")
+                    st.success("✅ Algoritmo completado respetando Orden V74. Dirígete a la Pestaña 3 para el Ajuste Logístico Manual.")
 
             elif not tecnicos_hoy and st.session_state['mapa_actual']:
                 st.error("⚠️ La lista de técnicos activos está vacía. Verifica el panel lateral.")
@@ -1040,19 +1074,16 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 if not visitas_huerfanas.empty:
                     st.markdown("#### 🚨 Carga Pendiente en Despacho")
                     
-                    # Agrupar las visitas de la bolsa por el campo 'TECNICO_IDEAL' para saber de quién eran
                     agrupacion_bolsas = visitas_huerfanas.groupby('TECNICO_IDEAL')
                     
                     for dueno_maestro, datos_bolsa_dueno in agrupacion_bolsas:
                         
-                        # Extraer los motivos reales por los cuales esta carga se fue a la bolsa (Inactivo o Cupo)
                         lista_motivos = [str(m) for m in datos_bolsa_dueno['ORIGEN_REAL'].unique() if pd.notna(m)]
                         motivos_unidos = " y ".join(lista_motivos) if lista_motivos else "Asignación Manual a Bolsa"
                         
                         with st.expander(f"📦 ZONA MAESTRA: {dueno_maestro} ({len(datos_bolsa_dueno)} visitas en espera)", expanded=True):
                             st.markdown(f'<div class="bolsa-card"><b>Origen:</b> Zona de {dueno_maestro}<br><b>Motivo de retención:</b> {motivos_unidos}</div>', unsafe_allow_html=True)
                             
-                            # BOTÓN MASIVO NARANJA PARA REASIGNAR LA BOLSA COMPLETA
                             st.markdown('<div class="btn-masivo-naranja">', unsafe_allow_html=True)
                             if st.button(f"🚀 REASIGNAR TODA LA BOLSA DE {dueno_maestro}", key=f"btn_masivo_bolsa_{dueno_maestro}"):
                                 modal_reasignar_bolsa(dueno_maestro, cuadrilla_presente, dataframe_matriz)
@@ -1066,7 +1097,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 cantidad_b = fila_barrio['TOTAL']
                                 
                                 with columnas_grid_bolsa[indice_b % 6]:
-                                    # USAMOS LA CLASE NARANJA PARA LOS BARRIOS INDIVIDUALES
                                     st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
                                     if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{indice_b}"):
                                         modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
@@ -1085,12 +1115,10 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 for index_tecnico, nombre_tecnico in enumerate(cuadrilla_presente):
                     with grid_tecnicos[index_tecnico % 2]:
                         
-                        # Extraer solo lo de este técnico
                         data_tecnico = dataframe_matriz[dataframe_matriz['TECNICO_FINAL'] == nombre_tecnico]
                         visitas_asignadas = len(data_tecnico)
                         capacidad_tecnico = dicc_limites.get(nombre_tecnico, 35)
                         
-                        # Lógica de colores para los títulos
                         if visitas_asignadas == 0:
                             titulo_acordeon = f"🟢 {nombre_tecnico} (DESOCUPADO - 0 / {capacidad_tecnico})"
                         elif visitas_asignadas > capacidad_tecnico:
@@ -1098,17 +1126,14 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         else:
                             titulo_acordeon = f"👷 {nombre_tecnico} ({visitas_asignadas} / {capacidad_tecnico})"
                             
-                        # Construir Acordeón
                         with st.expander(titulo_acordeon, expanded=(visitas_asignadas > 0)):
                             if visitas_asignadas > 0:
                                 
-                                # BOTÓN DE VACIADO MASIVO ROJO PARA TÉCNICOS ACTIVOS
                                 st.markdown('<div class="btn-masivo">', unsafe_allow_html=True)
                                 if st.button(f"🔴 TRASLADAR TODA LA CARGA DE {nombre_tecnico}", key=f"btn_masivo_vaciar_{nombre_tecnico}"):
                                     modal_masivo(nombre_tecnico, opciones_para_destino, dataframe_matriz)
                                 st.markdown('</div>', unsafe_allow_html=True)
                                 
-                                # Listar Barrios del técnico
                                 agrupacion_barrios_tecnico = data_tecnico.groupby([columna_barrio_nombre]).size().reset_index(name='CANTIDAD')
                                 grid_barrios = st.columns(3)
                                 
@@ -1117,7 +1142,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                     numero_barrio = fila_b_tecnico['CANTIDAD']
                                     
                                     with grid_barrios[index_barrio % 3]:
-                                        # USAMOS LA CLASE AZUL AQUÍ
                                         st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
                                         if st.button(f"📍 {texto_barrio} ({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{index_barrio}"):
                                             modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
@@ -1157,8 +1181,12 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             for iterador, nombre_operario in enumerate(lista_tecnicos_con_carga):
                                 # Copia limpia para este técnico
                                 dt_operario = dataframe_final[dataframe_final['TECNICO_FINAL'] == nombre_operario].copy()
-                                dt_operario['SORT'] = dt_operario[conf_columnas['DIRECCION']].astype(str).apply(natural_sort_key)
-                                dt_operario = dt_operario.sort_values(by=[conf_columnas['BARRIO'], 'SORT']).drop(columns=['SORT'])
+                                
+                                # Aplicamos orden V74 original en lugar de destructivo natural_sort_key
+                                if 'ORDEN_ORIGINAL' in dt_operario.columns:
+                                    dt_operario = dt_operario.sort_values(by=[conf_columnas['BARRIO'], 'ORDEN_ORIGINAL'])
+                                else:
+                                    dt_operario = dt_operario.sort_values(by=[conf_columnas['BARRIO']])
                                 
                                 carpeta_segura = str(nombre_operario).replace(" ","_")
                                 ruta_carpeta = os.path.join(CARPETA_PUBLICA, carpeta_segura)
@@ -1168,7 +1196,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 with open(os.path.join(ruta_carpeta, "1_HOJA_DE_RUTA.pdf"), "wb") as f_pdf_ruta:
                                     f_pdf_ruta.write(crear_pdf_lista_final(dt_operario, nombre_operario, conf_columnas))
                                 
-                                # ARTEFACTO 2: Tabla Digital Excel (REGLA EXTRICTA 5 COLUMNAS CON ORDEN REAL)
+                                # ARTEFACTO 2: Tabla Digital Excel
                                 df_5_columnas = preparar_tabla_digital_excel(dt_operario, conf_columnas)
                                 with pd.ExcelWriter(os.path.join(ruta_carpeta, "2_TABLA_DIGITAL.xlsx"), engine='xlsxwriter') as w_excel: 
                                     df_5_columnas.to_excel(w_excel, index=False)
@@ -1207,8 +1235,10 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 
                                 # 1. CONSOLIDADO GENERAL INTACTO
                                 buffer_excel_maestro = io.BytesIO() 
+                                # Ocultamos el ORDEN_ORIGINAL del Excel final ya que es uso interno
+                                df_export_maestro = dataframe_final.drop(columns=['ORDEN_ORIGINAL']) if 'ORDEN_ORIGINAL' in dataframe_final.columns else dataframe_final
                                 with pd.ExcelWriter(buffer_excel_maestro, engine='xlsxwriter') as wr_maestro: 
-                                    dataframe_final.to_excel(wr_maestro, index=False)
+                                    df_export_maestro.to_excel(wr_maestro, index=False)
                                 archivo_z.writestr("00_CONSOLIDADO_GENERAL.xlsx", buffer_excel_maestro.getvalue())
                                 
                                 # ---------------------------------------------------------------------
@@ -1223,13 +1253,9 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                     string_reporte += "Asumiendo que toda la operación carece de soportes documentales.\n"
                                 else:
                                     conjunto_cuentas_pdf = set(conf_polizas.keys())
-                                    
-                                    # Preparar Dataframe para el cruce rápido
                                     df_analisis_cruce = dataframe_final.copy()
-                                    # Asegurar que la cuenta sea comparable limpiándola
                                     df_analisis_cruce['CUENTA_MATCH'] = df_analisis_cruce[conf_columnas['CUENTA']].astype(str).apply(normalizar_numero)
                                     
-                                    # Filtrar: Quienes no estén en el conjunto del PDF y que la cuenta no sea vacía
                                     df_sin_poliza = df_analisis_cruce[
                                         ~df_analisis_cruce['CUENTA_MATCH'].isin(conjunto_cuentas_pdf) & 
                                         (df_analisis_cruce['CUENTA_MATCH'] != '')
@@ -1245,7 +1271,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                         string_reporte += f"{'CUENTA'.ljust(15)} | {'TÉCNICO'.ljust(25)} | {'BARRIO'}\n"
                                         string_reporte += "-"*85 + "\n"
                                         
-                                        # Organizar alfabéticamente para facilitar la impresión física
                                         df_sin_poliza = df_sin_poliza.sort_values(by=['TECNICO_FINAL', conf_columnas['BARRIO']])
                                         
                                         for _, fila_cruce in df_sin_poliza.iterrows():
@@ -1254,7 +1279,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                             t_barrio = str(fila_cruce[conf_columnas['BARRIO']])[:40]
                                             string_reporte += f"{t_cuenta} | {t_tecnico} | {t_barrio}\n"
                                 
-                                # Guardar el TXT en la raíz del ZIP
                                 archivo_z.writestr("00_REPORTE_POLIZAS_FALTANTES.txt", string_reporte.encode('utf-8'))
                                 # ---------------------------------------------------------------------
 
@@ -1262,13 +1286,17 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 for tech_name in lista_tecnicos_con_carga:
                                     folder_name = str(tech_name).replace(" ","_")
                                     datos_tech = dataframe_final[dataframe_final['TECNICO_FINAL'] == tech_name].copy()
-                                    datos_tech['SORT'] = datos_tech[conf_columnas['DIRECCION']].astype(str).apply(natural_sort_key)
-                                    datos_tech = datos_tech.sort_values(by=[conf_columnas['BARRIO'], 'SORT']).drop(columns=['SORT'])
+                                    
+                                    # Aplicamos orden V74 original
+                                    if 'ORDEN_ORIGINAL' in datos_tech.columns:
+                                        datos_tech = datos_tech.sort_values(by=[conf_columnas['BARRIO'], 'ORDEN_ORIGINAL'])
+                                    else:
+                                        datos_tech = datos_tech.sort_values(by=[conf_columnas['BARRIO']])
                                     
                                     # Ruta PDF
                                     archivo_z.writestr(f"{folder_name}/1_HOJA_DE_RUTA.pdf", crear_pdf_lista_final(datos_tech, tech_name, conf_columnas))
                                     
-                                    # Tabla Digital 5 Columnas (Ahora saca el ORDEN VERDADERO)
+                                    # Tabla Digital 5 Columnas
                                     buffer_tech_xls = io.BytesIO()
                                     df_tech_5col = preparar_tabla_digital_excel(datos_tech, conf_columnas)
                                     with pd.ExcelWriter(buffer_tech_xls, engine='xlsxwriter') as wr_tech: 
