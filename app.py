@@ -5,16 +5,14 @@
 #   FECHA: MARZO 2026                                                                   #
 #                                                                                       #
 #   NOTAS DE ESTA VERSIÓN (NO REDUCIDA, CÓDIGO ÍNTEGRO):                                #
-#   - CORRECCIÓN: La "Tabla Digital" extrae el Número de Orden REAL del Excel de ruta.  #
+#   - CORRECCIÓN: Unión de múltiples Excels y PDFs de pólizas antes del procesamiento.  #
+#   - CORRECCIÓN: Excedentes de cupo mueven barrios pequeños COMPLETOS a la bolsa,      #
+#                 sin dividir los barrios de mayor volumen.                             #
+#   - La "Tabla Digital" extrae el Número de Orden REAL del Excel de ruta.              #
 #   - Código expandido y detallado. Cero recortes.                                      #
 #   - CSS desplegado línea por línea para fácil edición.                                #
 #   - Compatibilidad total con "OPERARIOS REINSTALACION" (Nombre Unidad/Funcionario).   #
 #   - BOLSAS INTELIGENTES: Subdivisión por dueño original mostrando MOTIVO de envío.    #
-#   - BOTONES NARANJAS exclusivos para identificar la carga en la bolsa pendiente.      #
-#   - Botón MASIVO NARANJA para reasignar toda la bolsa de un técnico a otro.           #
-#   - Botones rojos para traslado masivo de cargas completas de técnicos activos.       #
-#   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
-#   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
 #   - CONSERVACIÓN DE ORDEN (V74): Mantiene intacto el orden original del maestro.      #
 #                                                                                       #
 #########################################################################################
@@ -912,15 +910,22 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             
             with c_pdf:
                 st.markdown("**Paso 1: Digitalización de Pólizas (PDF)**")
-                up_pdf = st.file_uploader("Arrastra el archivo PDF del banco de pólizas", type="pdf")
-                if up_pdf and st.button("EJECUTAR ESCÁNER PDF"):
-                    with st.spinner("Analizando documento, extrayendo cuentas y fragmentando páginas..."):
-                        st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
-                        st.success(f"✅ Escaneo finalizado: {len(st.session_state['mapa_polizas_cargado'])} Pólizas separadas y listas.")
+                # SE PERMITE SELECCIONAR MÚLTIPLES ARCHIVOS
+                up_pdfs = st.file_uploader("Arrastra el/los archivo(s) PDF del banco de pólizas", type="pdf", accept_multiple_files=True)
+                if up_pdfs and st.button("EJECUTAR ESCÁNER PDF"):
+                    with st.spinner("Analizando documentos, extrayendo cuentas y fragmentando páginas..."):
+                        diccionario_total = {}
+                        for pdf_file in up_pdfs:
+                            dicc_parcial = procesar_pdf_polizas_avanzado(pdf_file)
+                            diccionario_total.update(dicc_parcial)
+                            
+                        st.session_state['mapa_polizas_cargado'] = diccionario_total
+                        st.success(f"✅ Escaneo finalizado: {len(st.session_state['mapa_polizas_cargado'])} Pólizas separadas y unificadas.")
 
             with c_xls:
                 st.markdown("**Paso 2: Carga de Ruta Diaria (Excel)**")
-                up_xls = st.file_uploader("Arrastra el Excel exportado del sistema", type=["xlsx", "csv"])
+                # SE PERMITE SELECCIONAR MÚLTIPLES ARCHIVOS
+                up_xls = st.file_uploader("Arrastra el/los Excel(s) exportado(s) del sistema", type=["xlsx", "csv"], accept_multiple_files=True)
             
             # Verificar técnicos activos desde el menú lateral
             if 'tecnicos_activos_manual' in st.session_state and st.session_state['tecnicos_activos_manual']:
@@ -931,11 +936,15 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 tecnicos_hoy = []
 
             if up_xls and tecnicos_hoy:
-                # Leer ruta
-                if up_xls.name.endswith('.csv'): 
-                    df_ruta = pd.read_csv(up_xls, sep=None, engine='python', encoding='utf-8-sig')
-                else: 
-                    df_ruta = pd.read_excel(up_xls)
+                # Leer y unir (concatenar) todas las rutas
+                dfs = []
+                for arch in up_xls:
+                    if arch.name.endswith('.csv'): 
+                        dfs.append(pd.read_csv(arch, sep=None, engine='python', encoding='utf-8-sig'))
+                    else: 
+                        dfs.append(pd.read_excel(arch))
+                        
+                df_ruta = pd.concat(dfs, ignore_index=True)
                 
                 # Filtrar columnas
                 cols_limpias = []
@@ -995,8 +1004,13 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 
                 # BOTÓN DE EJECUCIÓN PRINCIPAL
                 if st.button("🚀 INICIAR ALGORITMO DE DISTRIBUCIÓN", type="primary"):
-                    if up_pdf and not st.session_state['mapa_polizas_cargado']:
-                        st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
+                    # Procesar pólizas automáticamente si se cargaron pero olvidaron darle al botón de escanear
+                    if up_pdfs and not st.session_state['mapa_polizas_cargado']:
+                        diccionario_total = {}
+                        for p_file in up_pdfs:
+                            dicc_parcial = procesar_pdf_polizas_avanzado(p_file)
+                            diccionario_total.update(dicc_parcial)
+                        st.session_state['mapa_polizas_cargado'] = diccionario_total
                     
                     st.session_state['limites_cupo'] = diccionario_limites
                     df_procesamiento = df_ruta.copy()
@@ -1016,7 +1030,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     df_procesamiento.loc[mascara_ausentes, 'ORIGEN_REAL'] = "TÉCNICO INACTIVO/AUSENTE"
                     df_procesamiento.loc[mascara_ausentes, 'TECNICO_FINAL'] = "⚠️ BOLSA PENDIENTE"
                     
-                    # 4. Aplicación de Reglas de Negocio (Sobrecarga / Cupos)
+                    # 4. Aplicación de Reglas de Negocio (Sobrecarga / Cupos) - MEJORADA PARA BARRIOS PEQUEÑOS
                     for tecnico_activo in tecnicos_hoy:
                         capacidad_max = diccionario_limites.get(tecnico_activo, 35)
                         indices_del_tecnico = df_procesamiento[df_procesamiento['TECNICO_FINAL'] == tecnico_activo].index
@@ -1024,15 +1038,29 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         if len(indices_del_tecnico) > capacidad_max:
                             excedente_cantidad = len(indices_del_tecnico) - capacidad_max
                             
-                            # === INICIO DE INYECCIÓN LÓGICA DE VOLUMEN ===
+                            # === INICIO DE INYECCIÓN LÓGICA DE VOLUMEN (BARRIOS COMPLETOS) ===
                             df_tec_temp = df_procesamiento.loc[indices_del_tecnico].copy()
-                            mapa_vol = df_tec_temp[sel_barrio].value_counts().to_dict()
-                            df_tec_temp['VOL_TEMP'] = df_tec_temp[sel_barrio].map(mapa_vol)
-                            indices_del_tecnico = df_tec_temp.sort_values(by=['VOL_TEMP', sel_barrio], ascending=[False, True]).index.tolist()
+                            # Contar cuánto hay por barrio
+                            conteo = df_tec_temp[sel_barrio].value_counts().reset_index()
+                            conteo.columns = ['BARRIO', 'CANT_BARRIO']
+                            
+                            # Ordenar de MENOR a MAYOR cantidad. Los barrios pequeños se envían a bolsa primero.
+                            # Esto asegura que los barrios grandes de 15, 20 o 30 órdenes NUNCA se dividan.
+                            conteo = conteo.sort_values(by=['CANT_BARRIO', 'BARRIO'], ascending=[True, True])
+                            
+                            indices_a_mover = []
+                            excedente_cubierto = 0
+                            
+                            for _, row_b in conteo.iterrows():
+                                if excedente_cubierto >= excedente_cantidad:
+                                    break # Si ya cubrimos lo que sobra, paramos
+                                
+                                b_name = row_b['BARRIO']
+                                idx_b = df_tec_temp[df_tec_temp[sel_barrio] == b_name].index.tolist()
+                                indices_a_mover.extend(idx_b)
+                                excedente_cubierto += len(idx_b)
                             # === FIN DE INYECCIÓN LÓGICA DE VOLUMEN ===
 
-                            indices_a_mover = indices_del_tecnico[-excedente_cantidad:]
-                            
                             df_procesamiento.loc[indices_a_mover, 'ORIGEN_REAL'] = "EXCEDE CUPO MÁXIMO"
                             df_procesamiento.loc[indices_a_mover, 'TECNICO_FINAL'] = "⚠️ BOLSA PENDIENTE"
 
@@ -1042,7 +1070,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     # Guardar en memoria
                     st.session_state['df_simulado'] = df_final_procesado
                     st.session_state['col_map_final'] = mapa_columnas
-                    st.success("✅ Algoritmo completado respetando Orden V74. Dirígete a la Pestaña 3 para el Ajuste Logístico Manual.")
+                    st.success("✅ Algoritmo completado. Barrios de gran volumen preservados. Dirígete a la Pestaña 3 para el Ajuste Logístico.")
 
             elif not tecnicos_hoy and st.session_state['mapa_actual']:
                 st.error("⚠️ La lista de técnicos activos está vacía. Verifica el panel lateral.")
@@ -1332,3 +1360,4 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
 
             else: 
                 st.info("Para exportar, primero debes procesar la información en la Pestaña 2.")
+
