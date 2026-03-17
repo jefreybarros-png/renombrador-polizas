@@ -5,7 +5,8 @@
 #   FECHA: MARZO 2026                                                                   #
 #                                                                                       #
 #   NOTAS DE ESTA VERSIÓN (NO REDUCIDA, CÓDIGO ÍNTEGRO):                                #
-#   - CORRECCIÓN: Unión de múltiples Excels y PDFs de pólizas antes del procesamiento.  #
+#   - CORRECCIÓN: Fix lectura multi-archivos (seek(0) para evitar que quede vacío).     #
+#   - CORRECCIÓN: Feedback visual persistente al cargar múltiples PDFs de pólizas.      #
 #   - CORRECCIÓN: Excedentes de cupo mueven barrios pequeños COMPLETOS a la bolsa,      #
 #                 sin dividir los barrios de mayor volumen.                             #
 #   - La "Tabla Digital" extrae el Número de Orden REAL del Excel de ruta.              #
@@ -912,15 +913,24 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 st.markdown("**Paso 1: Digitalización de Pólizas (PDF)**")
                 # SE PERMITE SELECCIONAR MÚLTIPLES ARCHIVOS
                 up_pdfs = st.file_uploader("Arrastra el/los archivo(s) PDF del banco de pólizas", type="pdf", accept_multiple_files=True)
-                if up_pdfs and st.button("EJECUTAR ESCÁNER PDF"):
-                    with st.spinner("Analizando documentos, extrayendo cuentas y fragmentando páginas..."):
-                        diccionario_total = {}
-                        for pdf_file in up_pdfs:
-                            dicc_parcial = procesar_pdf_polizas_avanzado(pdf_file)
-                            diccionario_total.update(dicc_parcial)
-                            
-                        st.session_state['mapa_polizas_cargado'] = diccionario_total
-                        st.success(f"✅ Escaneo finalizado: {len(st.session_state['mapa_polizas_cargado'])} Pólizas separadas y unificadas.")
+                
+                # Feedback permanente de la carga de PDFs
+                if st.session_state.get('mapa_polizas_cargado'):
+                    st.success(f"✅ Memoria activa: {len(st.session_state['mapa_polizas_cargado'])} Pólizas procesadas en el sistema.")
+
+                if up_pdfs:
+                    if st.button("EJECUTAR ESCÁNER PDF", use_container_width=True):
+                        with st.spinner("Analizando documentos, extrayendo cuentas y fragmentando páginas..."):
+                            diccionario_total = {}
+                            for pdf_file in up_pdfs:
+                                pdf_file.seek(0) # Rebobinar por seguridad
+                                dicc_parcial = procesar_pdf_polizas_avanzado(pdf_file)
+                                diccionario_total.update(dicc_parcial)
+                                
+                            st.session_state['mapa_polizas_cargado'] = diccionario_total
+                        st.success("✅ Escaneo finalizado. Actualizando vista...")
+                        time.sleep(1)
+                        st.rerun()
 
             with c_xls:
                 st.markdown("**Paso 2: Carga de Ruta Diaria (Excel)**")
@@ -939,6 +949,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 # Leer y unir (concatenar) todas las rutas
                 dfs = []
                 for arch in up_xls:
+                    arch.seek(0) # <--- VITAL PARA STREAMLIT: Evita que el archivo se lea como vacío en una recarga
                     if arch.name.endswith('.csv'): 
                         dfs.append(pd.read_csv(arch, sep=None, engine='python', encoding='utf-8-sig'))
                     else: 
@@ -1008,6 +1019,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     if up_pdfs and not st.session_state['mapa_polizas_cargado']:
                         diccionario_total = {}
                         for p_file in up_pdfs:
+                            p_file.seek(0)
                             dicc_parcial = procesar_pdf_polizas_avanzado(p_file)
                             diccionario_total.update(dicc_parcial)
                         st.session_state['mapa_polizas_cargado'] = diccionario_total
