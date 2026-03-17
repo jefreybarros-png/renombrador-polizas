@@ -5,8 +5,9 @@
 #   FECHA: MARZO 2026                                                                   #
 #                                                                                       #
 #   NOTAS DE ESTA VERSIÓN (NO REDUCIDA, CÓDIGO ÍNTEGRO):                                #
-#   - CORRECCIÓN: Fix lectura multi-archivos (seek(0) para evitar que quede vacío).     #
-#   - CORRECCIÓN: Feedback visual persistente al cargar múltiples PDFs de pólizas.      #
+#   - CORRECCIÓN: Sistema de COLA DE PROCESAMIENTO MASIVO para PDFs. Permite cargar     #
+#                 todos los archivos de golpe y los procesa uno a uno con feedback.     #
+#   - Fix límite de peso 200MB. Se implementa ACUMULADOR DE PÓLIZAS.                    #
 #   - CORRECCIÓN: Excedentes de cupo mueven barrios pequeños COMPLETOS a la bolsa,      #
 #                 sin dividir los barrios de mayor volumen.                             #
 #   - La "Tabla Digital" extrae el Número de Orden REAL del Excel de ruta.              #
@@ -911,25 +912,39 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             
             with c_pdf:
                 st.markdown("**Paso 1: Digitalización de Pólizas (PDF)**")
-                # SE PERMITE SELECCIONAR MÚLTIPLES ARCHIVOS
-                up_pdfs = st.file_uploader("Arrastra el/los archivo(s) PDF del banco de pólizas", type="pdf", accept_multiple_files=True)
                 
-                # Feedback permanente de la carga de PDFs
+                # Feedback permanente de la carga de PDFs y botón para limpiar
                 if st.session_state.get('mapa_polizas_cargado'):
                     st.success(f"✅ Memoria activa: {len(st.session_state['mapa_polizas_cargado'])} Pólizas procesadas en el sistema.")
+                    if st.button("🗑️ Vaciar memoria de pólizas", key="btn_limpiar_pol"):
+                        st.session_state['mapa_polizas_cargado'] = {}
+                        st.rerun()
 
+                up_pdfs = st.file_uploader("Arrastra aquí TODOS los PDFs a la vez", type="pdf", accept_multiple_files=True)
+                
                 if up_pdfs:
-                    if st.button("EJECUTAR ESCÁNER PDF", use_container_width=True):
-                        with st.spinner("Analizando documentos, extrayendo cuentas y fragmentando páginas..."):
-                            diccionario_total = {}
-                            for pdf_file in up_pdfs:
-                                pdf_file.seek(0) # Rebobinar por seguridad
-                                dicc_parcial = procesar_pdf_polizas_avanzado(pdf_file)
-                                diccionario_total.update(dicc_parcial)
-                                
-                            st.session_state['mapa_polizas_cargado'] = diccionario_total
-                        st.success("✅ Escaneo finalizado. Actualizando vista...")
-                        time.sleep(1)
+                    if st.button("EJECUTAR ESCÁNER EN COLA (PROCESAMIENTO MASIVO)", use_container_width=True):
+                        
+                        diccionario_total = st.session_state.get('mapa_polizas_cargado', {})
+                        
+                        # Creación de la Cola Visual
+                        progreso_lote = st.progress(0)
+                        texto_lote = st.empty()
+                        
+                        for i, pdf_file in enumerate(up_pdfs):
+                            # Actualizar UI con el archivo actual
+                            texto_lote.info(f"⏳ Procesando en cola: {pdf_file.name} ({i+1} de {len(up_pdfs)})...")
+                            
+                            pdf_file.seek(0) # Rebobinar
+                            dicc_parcial = procesar_pdf_polizas_avanzado(pdf_file)
+                            diccionario_total.update(dicc_parcial)
+                            
+                            # Actualizar barra
+                            progreso_lote.progress((i + 1) / len(up_pdfs))
+                            
+                        st.session_state['mapa_polizas_cargado'] = diccionario_total
+                        texto_lote.success(f"✅ Cola completada. {len(diccionario_total)} pólizas unidas en total. Actualizando...")
+                        time.sleep(1.5)
                         st.rerun()
 
             with c_xls:
@@ -1015,14 +1030,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 
                 # BOTÓN DE EJECUCIÓN PRINCIPAL
                 if st.button("🚀 INICIAR ALGORITMO DE DISTRIBUCIÓN", type="primary"):
-                    # Procesar pólizas automáticamente si se cargaron pero olvidaron darle al botón de escanear
-                    if up_pdfs and not st.session_state['mapa_polizas_cargado']:
-                        diccionario_total = {}
-                        for p_file in up_pdfs:
-                            p_file.seek(0)
-                            dicc_parcial = procesar_pdf_polizas_avanzado(p_file)
-                            diccionario_total.update(dicc_parcial)
-                        st.session_state['mapa_polizas_cargado'] = diccionario_total
                     
                     st.session_state['limites_cupo'] = diccionario_limites
                     df_procesamiento = df_ruta.copy()
