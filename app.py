@@ -6,7 +6,7 @@
 #                                                                                       #
 #   NOTAS DE ESTA VERSIÓN (NO REDUCIDA, CÓDIGO ÍNTEGRO):                                #
 #   - CORRECCIÓN: La "Tabla Digital" extrae el Número de Orden REAL del Excel de ruta.  #
-#   - Código expandido y detallado. Cero recortes.                                      #
+#   - MULTI-PDF: Soporte para procesar múltiples archivos de pólizas simultáneamente.   #
 #   - CSS desplegado línea por línea para fácil edición.                                #
 #   - Compatibilidad total con "OPERARIOS REINSTALACION" (Nombre Unidad/Funcionario).   #
 #   - BOLSAS INTELIGENTES: Subdivisión por dueño original mostrando MOTIVO de envío.    #
@@ -912,11 +912,18 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             
             with c_pdf:
                 st.markdown("**Paso 1: Digitalización de Pólizas (PDF)**")
-                up_pdf = st.file_uploader("Arrastra el archivo PDF del banco de pólizas", type="pdf")
-                if up_pdf and st.button("EJECUTAR ESCÁNER PDF"):
-                    with st.spinner("Analizando documento, extrayendo cuentas y fragmentando páginas..."):
-                        st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
-                        st.success(f"✅ Escaneo finalizado: {len(st.session_state['mapa_polizas_cargado'])} Pólizas separadas y listas.")
+                # MODIFICACIÓN: Permitir carga de múltiples archivos PDF
+                up_pdfs = st.file_uploader("Arrastra los archivos PDF del banco de pólizas", type="pdf", accept_multiple_files=True)
+                if up_pdfs and st.button("EJECUTAR ESCÁNER PDF"):
+                    with st.spinner("Analizando documentos, extrayendo cuentas y fragmentando páginas..."):
+                        # MODIFICACIÓN: Bucle para unificar los múltiples archivos cargados
+                        diccionario_global_polizas = {}
+                        for pdf_obj in up_pdfs:
+                            resultado_parcial = procesar_pdf_polizas_avanzado(pdf_obj)
+                            diccionario_global_polizas.update(resultado_parcial)
+                        
+                        st.session_state['mapa_polizas_cargado'] = diccionario_global_polizas
+                        st.success(f"✅ Escaneo finalizado: {len(st.session_state['mapa_polizas_cargado'])} Pólizas procesadas desde {len(up_pdfs)} archivo(s).")
 
             with c_xls:
                 st.markdown("**Paso 2: Carga de Ruta Diaria (Excel)**")
@@ -995,8 +1002,13 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 
                 # BOTÓN DE EJECUCIÓN PRINCIPAL
                 if st.button("🚀 INICIAR ALGORITMO DE DISTRIBUCIÓN", type="primary"):
-                    if up_pdf and not st.session_state['mapa_polizas_cargado']:
-                        st.session_state['mapa_polizas_cargado'] = procesar_pdf_polizas_avanzado(up_pdf)
+                    # MODIFICACIÓN: Revisar la lista de archivos para consolidar pólizas si no se hizo en el paso previo
+                    if up_pdfs and not st.session_state['mapa_polizas_cargado']:
+                        diccionario_global_polizas = {}
+                        for pdf_obj in up_pdfs:
+                            resultado_parcial = procesar_pdf_polizas_avanzado(pdf_obj)
+                            diccionario_global_polizas.update(resultado_parcial)
+                        st.session_state['mapa_polizas_cargado'] = diccionario_global_polizas
                     
                     st.session_state['limites_cupo'] = diccionario_limites
                     df_procesamiento = df_ruta.copy()
