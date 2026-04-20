@@ -16,6 +16,7 @@
 #   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
 #   - CONSERVACIÓN DE ORDEN (V74): Mantiene intacto el orden original del maestro.      #
+#   - MEJORA VISUAL: Botones ultra-compactos y grilla ampliada para mejor visibilidad.  #
 #                                                                                       #
 #########################################################################################
 
@@ -165,14 +166,15 @@ st.markdown("""
     .btn-barrio > button:first-child {
         background: transparent !important;
         color: #0284C7 !important;
-        border: 2px solid #0284C7 !important;
-        border-radius: 8px !important;
+        border: 1px solid #0284C7 !important; /* Borde más fino */
+        border-radius: 6px !important;
         height: auto !important;
-        padding: 5px 10px !important;
-        font-size: 13px !important;
+        min-height: 0px !important; /* Sobrescribe el alto por defecto de Streamlit */
+        padding: 2px 6px !important; /* Relleno mucho menor */
+        font-size: 11px !important; /* Letra más pequeña */
         text-transform: none !important;
         font-weight: 600 !important;
-        margin-bottom: 5px !important;
+        margin-bottom: 2px !important;
         box-shadow: none !important;
         width: 100%;
     }
@@ -186,14 +188,15 @@ st.markdown("""
     .btn-bolsa-naranja > button:first-child {
         background: transparent !important;
         color: #EA580C !important;
-        border: 2px solid #EA580C !important;
-        border-radius: 8px !important;
+        border: 1px solid #EA580C !important;
+        border-radius: 6px !important;
         height: auto !important;
-        padding: 5px 10px !important;
-        font-size: 13px !important;
+        min-height: 0px !important;
+        padding: 2px 6px !important;
+        font-size: 11px !important;
         text-transform: none !important;
         font-weight: 600 !important;
-        margin-bottom: 5px !important;
+        margin-bottom: 2px !important;
         box-shadow: none !important;
         width: 100%;
     }
@@ -207,11 +210,13 @@ st.markdown("""
     .btn-masivo-naranja > button:first-child {
         background: #C2410C !important;
         color: white !important;
-        font-size: 13px !important;
-        height: 40px !important;
-        margin-bottom: 12px !important;
-        border: 2px solid #9A3412 !important;
-        border-radius: 8px !important;
+        font-size: 11px !important;
+        height: 28px !important; /* Altura muy reducida */
+        min-height: 0px !important;
+        margin-bottom: 8px !important;
+        padding: 0px 5px !important;
+        border: 1px solid #9A3412 !important;
+        border-radius: 6px !important;
         font-weight: 800 !important;
         width: 100%;
     }
@@ -225,11 +230,13 @@ st.markdown("""
     .btn-masivo > button:first-child {
         background: #DC2626 !important;
         color: white !important;
-        font-size: 13px !important;
-        height: 40px !important;
-        margin-bottom: 12px !important;
-        border: 2px solid #991B1B !important;
-        border-radius: 8px !important;
+        font-size: 11px !important;
+        height: 28px !important; /* Altura muy reducida */
+        min-height: 0px !important;
+        margin-bottom: 8px !important;
+        padding: 0px 5px !important;
+        border: 1px solid #991B1B !important;
+        border-radius: 6px !important;
         font-weight: 800 !important;
         width: 100%;
     }
@@ -1102,13 +1109,13 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             st.markdown('</div>', unsafe_allow_html=True)
                             
                             resumen_agrupado = datos_bolsa_dueno.groupby([columna_barrio_nombre]).size().reset_index(name='TOTAL')
-                            columnas_grid_bolsa = st.columns(6)
+                            columnas_grid_bolsa = st.columns(8)
                             
                             for indice_b, fila_barrio in resumen_agrupado.iterrows():
                                 nombre_b = fila_barrio[columna_barrio_nombre]
                                 cantidad_b = fila_barrio['TOTAL']
                                 
-                                with columnas_grid_bolsa[indice_b % 6]:
+                                with columnas_grid_bolsa[indice_b % 8]:
                                     st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
                                     if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{indice_b}"):
                                         modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
@@ -1123,9 +1130,9 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 # -------------------------------------------------------------------
                 st.markdown("#### 👷 Asignación Actual en Terreno")
                 
-                grid_tecnicos = st.columns(2)
+                grid_tecnicos = st.columns(3)
                 for index_tecnico, nombre_tecnico in enumerate(cuadrilla_presente):
-                    with grid_tecnicos[index_tecnico % 2]:
+                    with grid_tecnicos[index_tecnico % 3]:
                         
                         data_tecnico = dataframe_matriz[dataframe_matriz['TECNICO_FINAL'] == nombre_tecnico]
                         visitas_asignadas = len(data_tecnico)
@@ -1147,13 +1154,13 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 st.markdown('</div>', unsafe_allow_html=True)
                                 
                                 agrupacion_barrios_tecnico = data_tecnico.groupby([columna_barrio_nombre]).size().reset_index(name='CANTIDAD')
-                                grid_barrios = st.columns(3)
+                                grid_barrios = st.columns(4)
                                 
                                 for index_barrio, fila_b_tecnico in agrupacion_barrios_tecnico.iterrows():
                                     texto_barrio = fila_b_tecnico[columna_barrio_nombre]
                                     numero_barrio = fila_b_tecnico['CANTIDAD']
                                     
-                                    with grid_barrios[index_barrio % 3]:
+                                    with grid_barrios[index_barrio % 4]:
                                         st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
                                         if st.button(f"📍 {texto_barrio} ({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{index_barrio}"):
                                             modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
@@ -1229,7 +1236,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                         with open(os.path.join(ruta_carpeta, "3_PAQUETE_LEGALIZACION.pdf"), "wb") as f_pdf_pol: 
                                             f_pdf_pol.write(motor_fusion.tobytes())
                                     motor_fusion.close()
-                                    
+                                
                                 barra_progreso.progress((iterador + 1) / len(lista_tecnicos_con_carga))
                                 
                             st.success("✅ Operación completada. Los operarios ya pueden entrar a descargar.")
