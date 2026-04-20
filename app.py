@@ -16,7 +16,7 @@
 #   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
 #   - CONSERVACIÓN DE ORDEN (V74): Mantiene intacto el orden original del maestro.      #
-#   - MEJORA VISUAL: Cuadrícula simétrica estricta, botones de altura fija alineados.   #
+#   - MEJORA VISUAL: Interfaz ULTRA COMPACTA. Botones más pequeños y menos separados.   #
 #                                                                                       #
 #########################################################################################
 
@@ -163,31 +163,31 @@ st.markdown("""
     }
 
     /* ========================================================================= */
-    /* CSS RECONSTRUIDO PARA CUADRÍCULA PERFECTA (BLOQUES SIMÉTRICOS)            */
+    /* CSS RECONSTRUIDO PARA CUADRÍCULA ULTRA COMPACTA (SIN ESPACIOS)            */
     /* ========================================================================= */
     
-    /* Botones AZULES para los operarios activos */
+    /* Botones AZULES para los operarios activos (Más pequeños y juntos) */
     .btn-barrio > button:first-child {
         background: transparent !important;
         color: #0284C7 !important;
         border: 1px solid #0284C7 !important; 
         border-radius: 4px !important;
-        height: 42px !important; /* ALTURA ESTRICTAMENTE FIJA PARA ALINEACIÓN */
-        min-height: 42px !important;
-        max-height: 42px !important;
-        padding: 2px 4px !important; 
-        font-size: 11px !important; 
-        line-height: 1.2 !important;
+        height: 32px !important; /* ALTURA AÚN MÁS REDUCIDA */
+        min-height: 32px !important;
+        max-height: 32px !important;
+        padding: 0px 2px !important; /* CERO PADDING VERTICAL */
+        font-size: 10px !important; /* LETRA MÁS PEQUEÑA */
+        line-height: 1.0 !important;
         text-transform: none !important;
         font-weight: 600 !important;
-        margin-bottom: 4px !important;
+        margin-bottom: 2px !important; /* MARGEN MÍNIMO PARA QUE ESTÉN CASI PEGADOS */
         box-shadow: none !important;
         width: 100% !important;
         display: flex !important;
         flex-direction: column !important;
         justify-content: center !important;
         align-items: center !important;
-        overflow: hidden !important; /* Evita que el texto extra deforme la cuadrícula */
+        overflow: hidden !important; 
     }
     
     .btn-barrio > button:first-child:hover {
@@ -201,22 +201,22 @@ st.markdown("""
         color: #EA580C !important;
         border: 1px solid #EA580C !important;
         border-radius: 4px !important;
-        height: 42px !important; /* ALTURA ESTRICTAMENTE FIJA PARA ALINEACIÓN */
-        min-height: 42px !important;
-        max-height: 42px !important;
-        padding: 2px 4px !important;
-        font-size: 11px !important;
-        line-height: 1.2 !important;
+        height: 32px !important; /* ALTURA AÚN MÁS REDUCIDA */
+        min-height: 32px !important;
+        max-height: 32px !important;
+        padding: 0px 2px !important; /* CERO PADDING VERTICAL */
+        font-size: 10px !important; /* LETRA MÁS PEQUEÑA */
+        line-height: 1.0 !important;
         text-transform: none !important;
         font-weight: 600 !important;
-        margin-bottom: 4px !important;
+        margin-bottom: 2px !important; /* MARGEN MÍNIMO */
         box-shadow: none !important;
         width: 100% !important;
         display: flex !important;
         flex-direction: column !important;
         justify-content: center !important;
         align-items: center !important;
-        overflow: hidden !important; /* Evita que el texto extra deforme la cuadrícula */
+        overflow: hidden !important; 
     }
     
     .btn-bolsa-naranja > button:first-child:hover {
@@ -228,11 +228,11 @@ st.markdown("""
     .btn-masivo-naranja > button:first-child {
         background: #C2410C !important;
         color: white !important;
-        font-size: 11px !important;
-        height: 32px !important; /* Altura reducida y fija */
-        min-height: 32px !important;
-        margin-bottom: 8px !important;
-        padding: 0px 5px !important;
+        font-size: 10px !important;
+        height: 28px !important; /* Súper compacto */
+        min-height: 28px !important;
+        margin-bottom: 4px !important;
+        padding: 0px 2px !important;
         border: 1px solid #9A3412 !important;
         border-radius: 4px !important;
         font-weight: 800 !important;
@@ -248,11 +248,11 @@ st.markdown("""
     .btn-masivo > button:first-child {
         background: #DC2626 !important;
         color: white !important;
-        font-size: 11px !important;
-        height: 32px !important; /* Altura reducida y fija */
-        min-height: 32px !important;
-        margin-bottom: 8px !important;
-        padding: 0px 5px !important;
+        font-size: 10px !important;
+        height: 28px !important; /* Súper compacto */
+        min-height: 28px !important;
+        margin-bottom: 4px !important;
+        padding: 0px 2px !important;
         border: 1px solid #991B1B !important;
         border-radius: 4px !important;
         font-weight: 800 !important;
@@ -263,18 +263,23 @@ st.markdown("""
         background: #B91C1C !important; 
         transform: translateY(-1px);
     }
+
+    /* Reduce la separación nativa de componentes en Streamlit */
+    div[data-testid="stVerticalBlock"] > div {
+        padding-bottom: 0rem !important; /* Evita que Streamlit agregue espacio extra debajo de cada bloque */
+    }
     /* ========================================================================= */
     
     /* Tarjeta informativa de la Bolsa Inteligente */
     .bolsa-card {
         background-color: #FFF7ED;
         color: #9A3412;
-        padding: 12px 15px;
+        padding: 8px 12px;
         border-radius: 8px;
         border-left: 6px solid #EA580C;
         font-weight: bold;
-        margin-bottom: 12px;
-        font-size: 14px;
+        margin-bottom: 8px;
+        font-size: 13px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
@@ -1122,13 +1127,15 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             st.markdown('</div>', unsafe_allow_html=True)
                             
                             resumen_agrupado = datos_bolsa_dueno.groupby([columna_barrio_nombre]).size().reset_index(name='TOTAL')
-                            columnas_grid_bolsa = st.columns(6)
+                            
+                            # USANDO GAP=SMALL DE STREAMLIT PARA JUNTAR LAS COLUMNAS AÚN MÁS
+                            columnas_grid_bolsa = st.columns(8, gap="small")
                             
                             for indice_b, fila_barrio in resumen_agrupado.iterrows():
                                 nombre_b = fila_barrio[columna_barrio_nombre]
                                 cantidad_b = fila_barrio['TOTAL']
                                 
-                                with columnas_grid_bolsa[indice_b % 6]:
+                                with columnas_grid_bolsa[indice_b % 8]:
                                     st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
                                     if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{indice_b}"):
                                         modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
@@ -1168,14 +1175,14 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 
                                 agrupacion_barrios_tecnico = data_tecnico.groupby([columna_barrio_nombre]).size().reset_index(name='CANTIDAD')
                                 
-                                # SE APLICAN 2 COLUMNAS INTERNAS PARA IMITAR LA CUADRÍCULA DE LA IMAGEN 1
-                                grid_barrios = st.columns(2) 
+                                # SE USAN 3 COLUMNAS INTERNAS CON GAP "SMALL" PARA EXPRIMIR CADA PÍXEL DE ESPACIO
+                                grid_barrios = st.columns(3, gap="small") 
                                 
                                 for index_barrio, fila_b_tecnico in agrupacion_barrios_tecnico.iterrows():
                                     texto_barrio = fila_b_tecnico[columna_barrio_nombre]
                                     numero_barrio = fila_b_tecnico['CANTIDAD']
                                     
-                                    with grid_barrios[index_barrio % 2]:
+                                    with grid_barrios[index_barrio % 3]:
                                         st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
                                         if st.button(f"📍 {texto_barrio}\n({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{index_barrio}"):
                                             modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
