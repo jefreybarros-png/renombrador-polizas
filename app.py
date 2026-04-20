@@ -16,7 +16,7 @@
 #   - "Tabla Digital" (Excel) forzada y garantizada a solo 5 columnas exactas.          #
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
 #   - CONSERVACIÓN DE ORDEN (V74): Mantiene intacto el orden original del maestro.      #
-#   - MEJORA VISUAL: Botones ultra-compactos y grilla ampliada para mejor visibilidad.  #
+#   - MEJORA VISUAL: Cuadrícula simétrica estricta, botones de altura fija alineados.   #
 #                                                                                       #
 #########################################################################################
 
@@ -162,21 +162,32 @@ st.markdown("""
         background: linear-gradient(135deg, #10B981 0%, #059669 100%); 
     }
 
-    /* Botones pequeños interactivos AZULES para los operarios activos */
+    /* ========================================================================= */
+    /* CSS RECONSTRUIDO PARA CUADRÍCULA PERFECTA (BLOQUES SIMÉTRICOS)            */
+    /* ========================================================================= */
+    
+    /* Botones AZULES para los operarios activos */
     .btn-barrio > button:first-child {
         background: transparent !important;
         color: #0284C7 !important;
-        border: 1px solid #0284C7 !important; /* Borde más fino */
-        border-radius: 6px !important;
-        height: auto !important;
-        min-height: 0px !important; /* Sobrescribe el alto por defecto de Streamlit */
-        padding: 2px 6px !important; /* Relleno mucho menor */
-        font-size: 11px !important; /* Letra más pequeña */
+        border: 1px solid #0284C7 !important; 
+        border-radius: 4px !important;
+        height: 42px !important; /* ALTURA ESTRICTAMENTE FIJA PARA ALINEACIÓN */
+        min-height: 42px !important;
+        max-height: 42px !important;
+        padding: 2px 4px !important; 
+        font-size: 11px !important; 
+        line-height: 1.2 !important;
         text-transform: none !important;
         font-weight: 600 !important;
-        margin-bottom: 2px !important;
+        margin-bottom: 4px !important;
         box-shadow: none !important;
-        width: 100%;
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        overflow: hidden !important; /* Evita que el texto extra deforme la cuadrícula */
     }
     
     .btn-barrio > button:first-child:hover {
@@ -184,21 +195,28 @@ st.markdown("""
         transform: scale(1.02) !important;
     }
 
-    /* Botones pequeños NARANJAS exclusivos para barrios en la Bolsa Pendiente */
+    /* Botones NARANJAS para barrios en la Bolsa Pendiente */
     .btn-bolsa-naranja > button:first-child {
         background: transparent !important;
         color: #EA580C !important;
         border: 1px solid #EA580C !important;
-        border-radius: 6px !important;
-        height: auto !important;
-        min-height: 0px !important;
-        padding: 2px 6px !important;
+        border-radius: 4px !important;
+        height: 42px !important; /* ALTURA ESTRICTAMENTE FIJA PARA ALINEACIÓN */
+        min-height: 42px !important;
+        max-height: 42px !important;
+        padding: 2px 4px !important;
         font-size: 11px !important;
+        line-height: 1.2 !important;
         text-transform: none !important;
         font-weight: 600 !important;
-        margin-bottom: 2px !important;
+        margin-bottom: 4px !important;
         box-shadow: none !important;
-        width: 100%;
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        overflow: hidden !important; /* Evita que el texto extra deforme la cuadrícula */
     }
     
     .btn-bolsa-naranja > button:first-child:hover {
@@ -206,19 +224,19 @@ st.markdown("""
         transform: scale(1.02) !important;
     }
 
-    /* Botón MASIVO NARANJA OSCURO para vaciar la bolsa */
+    /* Botón MASIVO NARANJA OSCURO */
     .btn-masivo-naranja > button:first-child {
         background: #C2410C !important;
         color: white !important;
         font-size: 11px !important;
-        height: 28px !important; /* Altura muy reducida */
-        min-height: 0px !important;
+        height: 32px !important; /* Altura reducida y fija */
+        min-height: 32px !important;
         margin-bottom: 8px !important;
         padding: 0px 5px !important;
         border: 1px solid #9A3412 !important;
-        border-radius: 6px !important;
+        border-radius: 4px !important;
         font-weight: 800 !important;
-        width: 100%;
+        width: 100% !important;
     }
     
     .btn-masivo-naranja > button:first-child:hover { 
@@ -231,20 +249,21 @@ st.markdown("""
         background: #DC2626 !important;
         color: white !important;
         font-size: 11px !important;
-        height: 28px !important; /* Altura muy reducida */
-        min-height: 0px !important;
+        height: 32px !important; /* Altura reducida y fija */
+        min-height: 32px !important;
         margin-bottom: 8px !important;
         padding: 0px 5px !important;
         border: 1px solid #991B1B !important;
-        border-radius: 6px !important;
+        border-radius: 4px !important;
         font-weight: 800 !important;
-        width: 100%;
+        width: 100% !important;
     }
     
     .btn-masivo > button:first-child:hover { 
         background: #B91C1C !important; 
         transform: translateY(-1px);
     }
+    /* ========================================================================= */
     
     /* Tarjeta informativa de la Bolsa Inteligente */
     .bolsa-card {
@@ -919,11 +938,9 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
             
             with c_pdf:
                 st.markdown("**Paso 1: Digitalización de Pólizas (PDF)**")
-                # MODIFICACIÓN: Permitir carga de múltiples archivos PDF
                 up_pdfs = st.file_uploader("Arrastra los archivos PDF del banco de pólizas", type="pdf", accept_multiple_files=True)
                 if up_pdfs and st.button("EJECUTAR ESCÁNER PDF"):
                     with st.spinner("Analizando documentos, extrayendo cuentas y fragmentando páginas..."):
-                        # MODIFICACIÓN: Bucle para unificar los múltiples archivos cargados
                         diccionario_global_polizas = {}
                         for pdf_obj in up_pdfs:
                             resultado_parcial = procesar_pdf_polizas_avanzado(pdf_obj)
@@ -1009,7 +1026,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 
                 # BOTÓN DE EJECUCIÓN PRINCIPAL
                 if st.button("🚀 INICIAR ALGORITMO DE DISTRIBUCIÓN", type="primary"):
-                    # MODIFICACIÓN: Revisar la lista de archivos para consolidar pólizas si no se hizo en el paso previo
                     if up_pdfs and not st.session_state['mapa_polizas_cargado']:
                         diccionario_global_polizas = {}
                         for pdf_obj in up_pdfs:
@@ -1024,7 +1040,6 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                     df_procesamiento['TECNICO_IDEAL'] = df_procesamiento[sel_barrio].apply(lambda x: buscar_tecnico_exacto(x, st.session_state['mapa_actual']))
                     df_procesamiento['TECNICO_FINAL'] = df_procesamiento['TECNICO_IDEAL']
                     df_procesamiento['ORIGEN_REAL'] = None
-                    # CLAVE: MEMORIZAMOS EL ORDEN V74 DE TU ARCHIVO
                     df_procesamiento['ORDEN_ORIGINAL'] = range(len(df_procesamiento))
                     
                     # 2. Ordenamiento Geográfico (Respetando el motor V74 original)
@@ -1043,12 +1058,10 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                         if len(indices_del_tecnico) > capacidad_max:
                             excedente_cantidad = len(indices_del_tecnico) - capacidad_max
                             
-                            # === INICIO DE INYECCIÓN LÓGICA DE VOLUMEN ===
                             df_tec_temp = df_procesamiento.loc[indices_del_tecnico].copy()
                             mapa_vol = df_tec_temp[sel_barrio].value_counts().to_dict()
                             df_tec_temp['VOL_TEMP'] = df_tec_temp[sel_barrio].map(mapa_vol)
                             indices_del_tecnico = df_tec_temp.sort_values(by=['VOL_TEMP', sel_barrio], ascending=[False, True]).index.tolist()
-                            # === FIN DE INYECCIÓN LÓGICA DE VOLUMEN ===
 
                             indices_a_mover = indices_del_tecnico[-excedente_cantidad:]
                             
@@ -1109,13 +1122,13 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             st.markdown('</div>', unsafe_allow_html=True)
                             
                             resumen_agrupado = datos_bolsa_dueno.groupby([columna_barrio_nombre]).size().reset_index(name='TOTAL')
-                            columnas_grid_bolsa = st.columns(8)
+                            columnas_grid_bolsa = st.columns(6)
                             
                             for indice_b, fila_barrio in resumen_agrupado.iterrows():
                                 nombre_b = fila_barrio[columna_barrio_nombre]
                                 cantidad_b = fila_barrio['TOTAL']
                                 
-                                with columnas_grid_bolsa[indice_b % 8]:
+                                with columnas_grid_bolsa[indice_b % 6]:
                                     st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
                                     if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{indice_b}"):
                                         modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
@@ -1154,15 +1167,17 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 st.markdown('</div>', unsafe_allow_html=True)
                                 
                                 agrupacion_barrios_tecnico = data_tecnico.groupby([columna_barrio_nombre]).size().reset_index(name='CANTIDAD')
-                                grid_barrios = st.columns(4)
+                                
+                                # SE APLICAN 2 COLUMNAS INTERNAS PARA IMITAR LA CUADRÍCULA DE LA IMAGEN 1
+                                grid_barrios = st.columns(2) 
                                 
                                 for index_barrio, fila_b_tecnico in agrupacion_barrios_tecnico.iterrows():
                                     texto_barrio = fila_b_tecnico[columna_barrio_nombre]
                                     numero_barrio = fila_b_tecnico['CANTIDAD']
                                     
-                                    with grid_barrios[index_barrio % 4]:
+                                    with grid_barrios[index_barrio % 2]:
                                         st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
-                                        if st.button(f"📍 {texto_barrio} ({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{index_barrio}"):
+                                        if st.button(f"📍 {texto_barrio}\n({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{index_barrio}"):
                                             modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
                                         st.markdown('</div>', unsafe_allow_html=True)
                             else:
