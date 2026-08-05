@@ -17,6 +17,7 @@
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
 #   - CONSERVACIÓN DE ORDEN (V74): Mantiene intacto el orden original del maestro.      #
 #   - MEJORA VISUAL: Interfaz ULTRA COMPACTA. Botones más pequeños y menos separados.   #
+#   - FIX DOM: Llaves (keys) dinámicas reparadas para evitar error 'removeChild'.       #
 #                                                                                       #
 #########################################################################################
 
@@ -820,7 +821,7 @@ if modo_acceso == "👷 TÉCNICO":
                 st.write("")
                 if os.path.exists(f_ruta):
                     with open(f_ruta, "rb") as f: 
-                        st.download_button("⬇️ DESCARGAR PDF", f, f"Ruta_{seleccion}.pdf", "application/pdf", key="d_ruta", use_container_width=True)
+                        st.download_button("⬇️ DESCARGAR PDF", f, f"Ruta_{seleccion}.pdf", "application/pdf", key=f"d_ruta_{seleccion}", use_container_width=True)
                 else: 
                     st.error("No disponible")
             
@@ -829,7 +830,7 @@ if modo_acceso == "👷 TÉCNICO":
                 st.write("")
                 if os.path.exists(f_excel):
                     with open(f_excel, "rb") as f: 
-                        st.download_button("⬇️ DESCARGAR EXCEL", f, f"Tabla_{seleccion}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="d_excel", use_container_width=True)
+                        st.download_button("⬇️ DESCARGAR EXCEL", f, f"Tabla_{seleccion}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"d_excel_{seleccion}", use_container_width=True)
                 else: 
                     st.info("No disponible")
                 
@@ -838,7 +839,7 @@ if modo_acceso == "👷 TÉCNICO":
                 st.write("")
                 if os.path.exists(f_leg):
                     with open(f_leg, "rb") as f: 
-                        st.download_button("⬇️ DESCARGAR PÓLIZAS", f, f"Leg_{seleccion}.pdf", "application/pdf", key="d_leg", use_container_width=True)
+                        st.download_button("⬇️ DESCARGAR PÓLIZAS", f, f"Leg_{seleccion}.pdf", "application/pdf", key=f"d_leg_{seleccion}", use_container_width=True)
                 else: 
                     st.info("No tienes pólizas asignadas hoy.")
 
@@ -1137,7 +1138,8 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 
                                 with columnas_grid_bolsa[indice_b % 8]:
                                     st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
-                                    if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{indice_b}"):
+                                    # FIX: Llave dinámica basada en el nombre del barrio en vez del índice
+                                    if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{nombre_b}"):
                                         modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
                                     st.markdown('</div>', unsafe_allow_html=True)
                 else:
@@ -1184,7 +1186,8 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                     
                                     with grid_barrios[index_barrio % 3]:
                                         st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
-                                        if st.button(f"📍 {texto_barrio}\n({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{index_barrio}"):
+                                        # FIX: Llave dinámica basada en el texto del barrio en vez del índice
+                                        if st.button(f"📍 {texto_barrio}\n({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{texto_barrio}"):
                                             modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
                                         st.markdown('</div>', unsafe_allow_html=True)
                             else:
@@ -1370,6 +1373,3 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                                 mime="application/zip", 
                                 use_container_width=True
                             )
-
-            else: 
-                st.info("Para exportar, primero debes procesar la información en la Pestaña 2.")
