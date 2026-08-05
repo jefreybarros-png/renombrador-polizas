@@ -17,7 +17,7 @@
 #   - Reporte TXT automático de cruce documental (Pólizas faltantes).                   #
 #   - CONSERVACIÓN DE ORDEN (V74): Mantiene intacto el orden original del maestro.      #
 #   - MEJORA VISUAL: Interfaz ULTRA COMPACTA. Botones más pequeños y menos separados.   #
-#   - FIX DOM: Llaves (keys) dinámicas reparadas para evitar error 'removeChild'.       #
+#   - FIX DEFINITIVO DOM: Lógica de chunking en st.columns para evitar 'removeChild'.   #
 #                                                                                       #
 #########################################################################################
 
@@ -362,6 +362,7 @@ def modal_traslado(origen, barrio_limpio, max_cant, opciones_destino, df_estado,
             
             # Actualizamos la memoria global y refrescamos
             st.session_state['df_simulado'] = df_work
+            time.sleep(0.1) # Micro-pausa para desmonte DOM
             st.rerun()
         else:
             st.error("Por favor, selecciona un destino válido que sea distinto al origen actual.")
@@ -394,6 +395,7 @@ def modal_masivo(tecnico_origen, opciones_destino, df_estado):
             df_work = reordenar_operacion_global(df_work, st.session_state.get('col_map_final', {}))
             
             st.session_state['df_simulado'] = df_work
+            time.sleep(0.1)
             st.rerun()
         else:
             st.error("Por favor, selecciona un operario de destino válido.")
@@ -427,6 +429,7 @@ def modal_reasignar_bolsa(dueno_original, opciones_destino, df_estado):
             df_work = reordenar_operacion_global(df_work, st.session_state.get('col_map_final', {}))
             
             st.session_state['df_simulado'] = df_work
+            time.sleep(0.1)
             st.rerun()
         else:
             st.error("Por favor, selecciona un operario destino válido (No puedes enviarlo a la bolsa de nuevo).")
@@ -1105,7 +1108,7 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                 opciones_para_destino = ["⚠️ BOLSA PENDIENTE"] + cuadrilla_presente
 
                 # -------------------------------------------------------------------
-                # SECCIÓN 3.1: BOLSA PENDIENTE INTELIGENTE (AGRUPADA, NARANJA Y CON BOTÓN MASIVO)
+                # SECCIÓN 3.1: BOLSA PENDIENTE INTELIGENTE
                 # -------------------------------------------------------------------
                 visitas_huerfanas = dataframe_matriz[dataframe_matriz['TECNICO_FINAL'] == "⚠️ BOLSA PENDIENTE"]
                 
@@ -1129,69 +1132,74 @@ elif modo_acceso == "⚙️ ADMINISTRADOR":
                             
                             resumen_agrupado = datos_bolsa_dueno.groupby([columna_barrio_nombre]).size().reset_index(name='TOTAL')
                             
-                            # USANDO GAP=SMALL DE STREAMLIT PARA JUNTAR LAS COLUMNAS AÚN MÁS
-                            columnas_grid_bolsa = st.columns(8, gap="small")
-                            
-                            for indice_b, fila_barrio in resumen_agrupado.iterrows():
-                                nombre_b = fila_barrio[columna_barrio_nombre]
-                                cantidad_b = fila_barrio['TOTAL']
-                                
-                                with columnas_grid_bolsa[indice_b % 8]:
-                                    st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
-                                    # FIX: Llave dinámica basada en el nombre del barrio en vez del índice
-                                    if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{nombre_b}"):
-                                        modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
-                                    st.markdown('</div>', unsafe_allow_html=True)
+                            # NUEVA LÓGICA DE CHUNKING PARA EL EVITAR ERROR REMOVECHILD DE REACT
+                            for i in range(0, len(resumen_agrupado), 8):
+                                columnas_grid_bolsa = st.columns(8, gap="small")
+                                for j in range(8):
+                                    if i + j < len(resumen_agrupado):
+                                        fila_barrio = resumen_agrupado.iloc[i + j]
+                                        nombre_b = fila_barrio[columna_barrio_nombre]
+                                        cantidad_b = fila_barrio['TOTAL']
+                                        
+                                        with columnas_grid_bolsa[j]:
+                                            st.markdown('<div class="btn-bolsa-naranja">', unsafe_allow_html=True)
+                                            if st.button(f"{nombre_b} ({cantidad_b})", key=f"btn_bolsa_dinamica_{dueno_maestro}_{nombre_b}"):
+                                                modal_traslado("⚠️ BOLSA PENDIENTE", nombre_b, cantidad_b, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
+                                            st.markdown('</div>', unsafe_allow_html=True)
                 else:
                     st.success("🎉 ¡Excelente! La Bolsa Pendiente está en cero. Toda la ruta está asignada.")
                 
                 st.divider()
                 
                 # -------------------------------------------------------------------
-                # SECCIÓN 3.2: CUADRILLA ACTIVA (TABLERO PRINCIPAL CON BOTONES AZULES Y ROJOS)
+                # SECCIÓN 3.2: CUADRILLA ACTIVA
                 # -------------------------------------------------------------------
                 st.markdown("#### 👷 Asignación Actual en Terreno")
                 
-                grid_tecnicos = st.columns(3)
-                for index_tecnico, nombre_tecnico in enumerate(cuadrilla_presente):
-                    with grid_tecnicos[index_tecnico % 3]:
-                        
-                        data_tecnico = dataframe_matriz[dataframe_matriz['TECNICO_FINAL'] == nombre_tecnico]
-                        visitas_asignadas = len(data_tecnico)
-                        capacidad_tecnico = dicc_limites.get(nombre_tecnico, 35)
-                        
-                        if visitas_asignadas == 0:
-                            titulo_acordeon = f"🟢 {nombre_tecnico} (DESOCUPADO - 0 / {capacidad_tecnico})"
-                        elif visitas_asignadas > capacidad_tecnico:
-                            titulo_acordeon = f"🔴 {nombre_tecnico} ({visitas_asignadas} / {capacidad_tecnico} - SOBRECARGA)"
-                        else:
-                            titulo_acordeon = f"👷 {nombre_tecnico} ({visitas_asignadas} / {capacidad_tecnico})"
+                # NUEVA LÓGICA DE CHUNKING PARA LOS TÉCNICOS GLOBALES
+                for i_tec in range(0, len(cuadrilla_presente), 3):
+                    grid_tecnicos = st.columns(3)
+                    for j_tec in range(3):
+                        if i_tec + j_tec < len(cuadrilla_presente):
+                            nombre_tecnico = cuadrilla_presente[i_tec + j_tec]
                             
-                        with st.expander(titulo_acordeon, expanded=(visitas_asignadas > 0)):
-                            if visitas_asignadas > 0:
+                            with grid_tecnicos[j_tec]:
+                                data_tecnico = dataframe_matriz[dataframe_matriz['TECNICO_FINAL'] == nombre_tecnico]
+                                visitas_asignadas = len(data_tecnico)
+                                capacidad_tecnico = dicc_limites.get(nombre_tecnico, 35)
                                 
-                                st.markdown('<div class="btn-masivo">', unsafe_allow_html=True)
-                                if st.button(f"🔴 TRASLADAR TODA LA CARGA DE {nombre_tecnico}", key=f"btn_masivo_vaciar_{nombre_tecnico}"):
-                                    modal_masivo(nombre_tecnico, opciones_para_destino, dataframe_matriz)
-                                st.markdown('</div>', unsafe_allow_html=True)
-                                
-                                agrupacion_barrios_tecnico = data_tecnico.groupby([columna_barrio_nombre]).size().reset_index(name='CANTIDAD')
-                                
-                                # SE USAN 3 COLUMNAS INTERNAS CON GAP "SMALL" PARA EXPRIMIR CADA PÍXEL DE ESPACIO
-                                grid_barrios = st.columns(3, gap="small") 
-                                
-                                for index_barrio, fila_b_tecnico in agrupacion_barrios_tecnico.iterrows():
-                                    texto_barrio = fila_b_tecnico[columna_barrio_nombre]
-                                    numero_barrio = fila_b_tecnico['CANTIDAD']
+                                if visitas_asignadas == 0:
+                                    titulo_acordeon = f"🟢 {nombre_tecnico} (DESOCUPADO - 0 / {capacidad_tecnico})"
+                                elif visitas_asignadas > capacidad_tecnico:
+                                    titulo_acordeon = f"🔴 {nombre_tecnico} ({visitas_asignadas} / {capacidad_tecnico} - SOBRECARGA)"
+                                else:
+                                    titulo_acordeon = f"👷 {nombre_tecnico} ({visitas_asignadas} / {capacidad_tecnico})"
                                     
-                                    with grid_barrios[index_barrio % 3]:
-                                        st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
-                                        # FIX: Llave dinámica basada en el texto del barrio en vez del índice
-                                        if st.button(f"📍 {texto_barrio}\n({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{texto_barrio}"):
-                                            modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
+                                with st.expander(titulo_acordeon, expanded=(visitas_asignadas > 0)):
+                                    if visitas_asignadas > 0:
+                                        st.markdown('<div class="btn-masivo">', unsafe_allow_html=True)
+                                        if st.button(f"🔴 TRASLADAR TODA LA CARGA DE {nombre_tecnico}", key=f"btn_masivo_vaciar_{nombre_tecnico}"):
+                                            modal_masivo(nombre_tecnico, opciones_para_destino, dataframe_matriz)
                                         st.markdown('</div>', unsafe_allow_html=True)
-                            else:
-                                st.caption("Este operario no tiene asignaciones. Listo para recibir apoyo.")
+                                        
+                                        agrupacion_barrios_tecnico = data_tecnico.groupby([columna_barrio_nombre]).size().reset_index(name='CANTIDAD')
+                                        
+                                        # NUEVA LÓGICA DE CHUNKING PARA LOS BARRIOS INTERNOS DEL TÉCNICO
+                                        for i_bar in range(0, len(agrupacion_barrios_tecnico), 3):
+                                            grid_barrios = st.columns(3, gap="small") 
+                                            for j_bar in range(3):
+                                                if i_bar + j_bar < len(agrupacion_barrios_tecnico):
+                                                    fila_b_tecnico = agrupacion_barrios_tecnico.iloc[i_bar + j_bar]
+                                                    texto_barrio = fila_b_tecnico[columna_barrio_nombre]
+                                                    numero_barrio = fila_b_tecnico['CANTIDAD']
+                                                    
+                                                    with grid_barrios[j_bar]:
+                                                        st.markdown('<div class="btn-barrio">', unsafe_allow_html=True)
+                                                        if st.button(f"📍 {texto_barrio}\n({numero_barrio})", key=f"btn_mover_{nombre_tecnico}_{texto_barrio}"):
+                                                            modal_traslado(nombre_tecnico, texto_barrio, numero_barrio, opciones_para_destino, dataframe_matriz, columna_barrio_nombre)
+                                                        st.markdown('</div>', unsafe_allow_html=True)
+                                    else:
+                                        st.caption("Este operario no tiene asignaciones. Listo para recibir apoyo.")
             else: 
                 st.info("Esperando datos de ruta. Completa el Paso 2.")
 
